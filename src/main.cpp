@@ -344,7 +344,6 @@ void NotiCallback()
   }
   
 }
-
 void error(int errcode)
 {
     Serial.println("ERROR " + errcode);
@@ -354,32 +353,33 @@ void error(int errcode)
       
       matrix.show();
       delay(2000);
-      if(errcode == 1) //Blank IMEI -> No connection with the modem
+      switch (errcode)
       {
+        case 1: //Blank IMEI -> No connection with the modem
           matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(8,0,8,16,matrix.Color(255,0,0));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 2) //No NET
-      {
-        matrix.fillScreen(matrix.Color(0,0,0));
+          break;
+
+        case 2: //No NET
+          matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(7,0,7,16, matrix.Color(255,0,0));
           matrix.drawLine(9,0,9,16,matrix.Color(0,255,0));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 3) //No GPRS
-      {
-        matrix.fillScreen(matrix.Color(0,0,0));
+          break;
+
+        case 3: //No GPRS
+          matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(6,0,6,16, matrix.Color(255,0,0));
           matrix.drawLine(8,0,8,16,matrix.Color(0,255,0));
           matrix.drawLine(10,0,10,16,matrix.Color(0,0,255));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 4)  //No MQTT
-      {
+          break;
+
+        case 4: //No MQTT
           matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(5,0,5,16, matrix.Color(255,0,0));
           matrix.drawLine(7,0,7,16, matrix.Color(0,255,0));
@@ -387,9 +387,9 @@ void error(int errcode)
           matrix.drawLine(11,0,11,16,matrix.Color(0,0,255));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 5) //No SIM
-      {
+          break;
+          
+        case 5: //No SIM
           matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(4,0,4,16, matrix.Color(255,0,0));
           matrix.drawLine(6,0,6,16, matrix.Color(0,255,0));
@@ -398,6 +398,7 @@ void error(int errcode)
           matrix.drawLine(12,0,12,16, matrix.Color(255,0,0));
           matrix.show();
           delay(2000);
+          break;
       }
     }
 }
