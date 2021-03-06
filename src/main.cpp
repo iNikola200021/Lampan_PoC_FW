@@ -1,27 +1,20 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.1"
+#define FW_VERSION      "3.0.0 alpha"
 
 #define TINY_GSM_MODEM_SIM800
-#define _TASK_STATUS_REQUEST
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_NeoMatrix.h>
-//#include <Adafruit_GFX.h>
-//#include <Adafruit_NeoPixel.h>
 #include <TinyGsmClient.h>
-#include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <TaskScheduler.h>
+#include <IPStack.h>
+#include <Countdown.h>
+#include <MQTTClient.h>
+
 #define MATRIX_PIN PA7
-
-
-#define GSM_AUTOBAUD_MIN 9600
-#define GSM_AUTOBAUD_MAX 115200
-// Add a reception delay - may be needed for a fast processor at a slow baud rate
-// #define TINY_GSM_YIELD() { delay(2); }
-// Define how you're planning to connect to the internet
 #define TINY_GSM_USE_GPRS true
 #define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
@@ -29,8 +22,9 @@ const char BUILD[] = __DATE__ " " __TIME__;
 
 //Classes definition
 TinyGsm modem(SerialAT);
-TinyGsmClient client(modem);
-PubSubClient mqtt(client);
+TinyGsmClient ModemClient(modem);
+IPStack ipstack(ModemClient);
+MQTT::Client<IPStack, Countdown, 50, 1> client = MQTT::Client<IPStack, Countdown, 50, 1>(ipstack);
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
                             NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG,
@@ -43,9 +37,10 @@ const char* apn = "internet.beeline.ru";
 const char* gprsUser = "beeline";
 const char* gprsPass = "beeline";
 // MQTT details
-const char* broker = "iotcreative.ru";
-const char* mqtt_user = "dave";
-const char* mqtt_pass = "lemontree";
+char broker[] = "iotcreative.ru";
+int port = 1883;
+char* mqtt_user = "dave";
+char* mqtt_pass = "lemontree";
 const char* topicRegister = "/device/register";
 char topicStatus[29] = "/device/";
 char topicService[40]= "/device/";
@@ -100,22 +95,43 @@ void SignalTest();
 Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tRSSI(ServTime*TASK_SECOND, TASK_FOREVER, &PublishRSSI, &ts);
 Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts);
-bool mqttConnect()
+
+void connect()
 {
-  while (!mqtt.connected())
+
+  Serial.print("Connecting to ");
+  Serial.print(broker);
+  Serial.print(":");
+  Serial.println(port);
+ 
+  int rc = ipstack.connect(broker, port);
+  if (rc != 1)
   {
-    SerialMon.print(F("MQTT?"));
-    if (mqtt.connect(DeviceID, mqtt_user, mqtt_pass))
-    {
-      Serial.println(F(" OK"));
-      mqtt.publish(topicRegister, DeviceID,16);
-      int csq = modem.getSignalQuality();
-      int RSSI = -113 +(csq*2);
-      char serrssi[4];
-      itoa(RSSI, serrssi, 10);
-      mqtt.publish(topicService, serrssi);
-      mqtt.subscribe(topicStatus,1);
-      if (!IsSetupComplete) //Add Boot is Complete Animation
+    Serial.print("rc from TCP connect is ");
+    Serial.println(rc);
+  }
+ 
+  Serial.println("MQTT connecting");
+  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;       
+  data.MQTTVersion = 3;
+  data.clientID.cstring = DeviceID;
+  data.username.cstring = mqtt_user;
+  data.password.cstring = mqtt_pass;
+  rc = client.connect(data);
+  if (rc != 0)
+  {
+    Serial.print("rc from MQTT connect is ");
+    Serial.println(rc);
+  }
+  Serial.println("MQTT connected");
+  MQTT::Message RegisterMsg;
+  RegisterMsg.qos = MQTT::QOS0;
+  RegisterMsg.retained = false;
+  RegisterMsg.dup = false;
+  RegisterMsg.payload = DeviceID;
+  RegisterMsg.payloadlen = strlen(DeviceID)+1;
+  rc = client.publish(topicRegister, RegisterMsg);
+  if (!IsSetupComplete) //Add Boot is Complete Animation
       {
         IsSetupComplete = true;
         for (byte k = MainBrightness; k > 0; k--)
@@ -128,38 +144,31 @@ bool mqttConnect()
         matrix.fillScreen(0);
         matrix.show();
       }
-    }
-    else
-    {
-      if(MqttRT < MqttThreshold)
-      {
-          SerialMon.print(F(" NOT OK, status: "));
-          SerialMon.print(mqtt.state());
-          Serial.println(", try again in 5 seconds");
-          MqttRT++;
-        // Wait 5 seconds before retrying
-        delay(5000);
-      }
-      else
-      {
-          error(4);
-          
-      }
-    }
+  rc = client.subscribe(topicStatus, MQTT::QOS1, messageArrived);   
+  if (rc != 0)
+  {
+    Serial.print("rc from MQTT subscribe is ");
+    Serial.println(rc);
   }
-  return mqtt.connected();
+  Serial.println("MQTT subscribed");
+  PublishRSSI;
 }
-
-void mqttRX(char* topic, byte* payload, unsigned int len)
+void messageArrived(MQTT::MessageData& md)
 {
-  SerialMon.print(F("Message ["));
-  SerialMon.print(topic);
-  SerialMon.print(F("]: "));
-  SerialMon.write(payload, len);
-  SerialMon.println();
-  //DynamicJsonDocument payld(100);
-  //deserializeJson(payld,payload);
-  if (!strncmp((char *)payload, "on", len))
+  MQTT::Message &message = md.message;
+  
+  Serial.print("Message arrived: qos");
+  Serial.print(message.qos);
+  Serial.print(", retained ");
+  Serial.print(message.retained);
+  Serial.print(", dup ");
+  Serial.print(message.dup);
+  Serial.print(", packetid ");
+  Serial.println(message.id);
+  Serial.print("Payload ");
+  Serial.println((char*)message.payload);
+
+  if (!strncmp((char *)message.payload, "on", message.payloadlen))
   {
     SerialMon.println(F("LED ON"));
     if(!tNotification.isEnabled())
@@ -167,30 +176,27 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
     tNotification.enable();
     }
   }
-  else if (!strncmp((char *)payload, "off", len))
+  else if (!strncmp((char *)message.payload, "off", message.payloadlen))
   {
     SerialMon.println(F("LED OFF"));
     tNotification.disable();
   }
 }
-
-
 void setup()
 {
-  delay(2000);
   SerialMon.begin();
-  
+  delay(3000);
   SerialMon.println(F("BOOT"));
   matrix.begin();
   matrix.setBrightness(MainBrightness);
   matrix.fillRect(0,0,2,16,PBColour);
   matrix.show();
+
   SerialAT.begin(115200);
   matrix.fillRect(0,0,4,16,PBColour);
   matrix.show();
-  delay(6000);
-  // Restart takes quite some time
-  // To skip it, call init() instead of restart()
+
+  delay(3000);
   SerialMon.println("INIT");
   SerialMon.print("Firmware ");
   SerialMon.print(FW_NAME);  
@@ -200,12 +206,11 @@ void setup()
   SerialMon.println(BUILD);
   matrix.fillRect(0,0,6,16,PBColour);
   matrix.show();
-  //modem.restart();
+
   modem.init();
   String modemInfo = modem.getModemInfo();
   SerialMon.print(F("Modem Info: "));
   SerialMon.println(modemInfo);
-
   DeviceImei = modem.getIMEI();
   DeviceImei.toCharArray(DeviceID, 16);
   SerialMon.print("Lamp ID number: ");
@@ -224,6 +229,7 @@ void setup()
   }
   matrix.fillRect(0,0,8,16,PBColour);
   matrix.show();
+
   if(modem.getSimStatus() != 1)
   {
     //Serial.print("NO SIM");
@@ -240,15 +246,14 @@ void setup()
   {
     NetRT = 0;
     SerialMon.println("OK");
-
-    matrix.fillRect(0,0,10,16,PBColour);
-    matrix.show();
   }
+  matrix.fillRect(0,0,10,16,PBColour);
+  matrix.show();
+
   int csq = modem.getSignalQuality();
   int RSSI = -113 +(csq*2);
   SerialMon.print("RSSI? ");
   SerialMon.println(RSSI);
-
   SerialMon.print("GPRS?");
   if (!modem.gprsConnect(apn, gprsUser, gprsPass))
   {
@@ -264,49 +269,24 @@ void setup()
   if (modem.isGprsConnected()) 
   {
     SerialMon.println(F(" OK"));
-    matrix.fillRect(0,0,12,16,PBColour);
-    matrix.show();
-
   }
+  matrix.fillRect(0,0,12,16,PBColour);
+  matrix.show();
   ts.addTask(tNotification);
   ts.addTask(tRSSI);
-  
   tRSSI.enable();
-  // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  mqtt.setServer(broker, 1883);
-  mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
-  matrix.show();
-  mqttConnect();
-  //ServTimer = millis();
+  connect();
 }
 
 void loop()
 {
     ts.execute();
-  if (!mqtt.connected())
-  {
-    SerialMon.println(F("=== MQTT DISCONNECT ==="));
-    // Reconnect every 10 seconds
-    uint32_t t = millis();
-    if (t - lastReconnectAttempt > 10000L)
+    if (!client.isConnected())
     {
-      
-      lastReconnectAttempt = t;
-      if (mqttConnect())
-      {
-        lastReconnectAttempt = 0;
-        MqttRT = 0;
-      }
-      
+    connect();
     }
-    
-    return;
-
-  }
-  
-  mqtt.loop();
 }
 bool NotiOnEnable()
 {
@@ -316,7 +296,6 @@ bool NotiOnEnable()
 void NotiOnDisable()
 {
   FadeOut(NBColour, NotiBrightness);
-  //return true;
 }
 void NotiCallback()
 {
@@ -354,32 +333,33 @@ void error(int errcode)
       
       matrix.show();
       delay(2000);
-      if(errcode == 1) //Blank IMEI -> No connection with the modem
+      switch (errcode)
       {
+        case 1: //Blank IMEI -> No connection with the modem
           matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(8,0,8,16,matrix.Color(255,0,0));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 2) //No NET
-      {
-        matrix.fillScreen(matrix.Color(0,0,0));
+          break;
+
+        case 2: //No NET
+          matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(7,0,7,16, matrix.Color(255,0,0));
           matrix.drawLine(9,0,9,16,matrix.Color(0,255,0));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 3) //No GPRS
-      {
-        matrix.fillScreen(matrix.Color(0,0,0));
+          break;
+
+        case 3: //No GPRS
+          matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(6,0,6,16, matrix.Color(255,0,0));
           matrix.drawLine(8,0,8,16,matrix.Color(0,255,0));
           matrix.drawLine(10,0,10,16,matrix.Color(0,0,255));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 4)  //No MQTT
-      {
+          break;
+
+        case 4: //No MQTT
           matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(5,0,5,16, matrix.Color(255,0,0));
           matrix.drawLine(7,0,7,16, matrix.Color(0,255,0));
@@ -387,9 +367,9 @@ void error(int errcode)
           matrix.drawLine(11,0,11,16,matrix.Color(0,0,255));
           matrix.show();
           delay(2000);
-      }
-      if(errcode == 5) //No SIM
-      {
+          break;
+          
+        case 5: //No SIM
           matrix.fillScreen(matrix.Color(0,0,0));
           matrix.drawLine(4,0,4,16, matrix.Color(255,0,0));
           matrix.drawLine(6,0,6,16, matrix.Color(0,255,0));
@@ -398,6 +378,7 @@ void error(int errcode)
           matrix.drawLine(12,0,12,16, matrix.Color(255,0,0));
           matrix.show();
           delay(2000);
+          break;
       }
     }
 }
@@ -445,7 +426,13 @@ void PublishRSSI ()
       int RSSI = -113 +(csq*2);
       char serrssi[4];
       itoa(RSSI, serrssi, 10);
-      mqtt.publish(topicService, serrssi);
+      MQTT::Message RSSIMsg;
+      RSSIMsg.qos = MQTT::QOS0;
+      RSSIMsg.retained = false;
+      RSSIMsg.dup = false;
+      RSSIMsg.payload = serrssi;
+      RSSIMsg.payloadlen = strlen(serrssi)+1;
+      client.publish(topicService, RSSIMsg);
 }
 void SignalTest ()
 {
