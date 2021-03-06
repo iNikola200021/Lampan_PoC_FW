@@ -1,5 +1,9 @@
-#define TINY_GSM_MODEM_SIM800
+const char BUILD[] = __DATE__ " " __TIME__;
+#define FW_NAME         "Lampan-EVT2"
+#define FW_VERSION      "2.0.0 alpha"
 
+#define TINY_GSM_MODEM_SIM800
+#define _TASK_STATUS_REQUEST
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -8,15 +12,11 @@
 //#include <Adafruit_NeoPixel.h>
 #include <TinyGsmClient.h>
 #include <PubSubClient.h>
-//#include <ArduinoJson.h>
+#include <ArduinoJson.h>
+#include <TaskScheduler.h>
 #define MATRIX_PIN PA7
 
 
-// See all AT commands, if wanted
-// #define DUMP_AT_COMMANDS
-// Define the serial console for debug prints, if needed
-//#define TINY_GSM_DEBUG SerialMon
-// Range to attempt to autobaud
 #define GSM_AUTOBAUD_MIN 9600
 #define GSM_AUTOBAUD_MAX 115200
 // Add a reception delay - may be needed for a fast processor at a slow baud rate
@@ -26,23 +26,17 @@
 #define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
 #define SerialAT Serial1
-// set GSM PIN, if any
-//#define GSM_PIN ""
-/*#ifdef DUMP_AT_COMMANDS
-  #include <StreamDebugger.h>
-  StreamDebugger debugger(SerialAT, SerialMon);
-  TinyGsm modem(debugger);
-  #else*/
 
 //Classes definition
 TinyGsm modem(SerialAT);
-TinyGsmClient client(modem);
+TinyGsmClientSecure client(modem);
 PubSubClient mqtt(client);
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
                             NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG,
                             NEO_GRB            + NEO_KHZ800);
 
+Scheduler ts;
 
 //APN Credentials
 const char* apn = "internet.beeline.ru";
@@ -55,16 +49,15 @@ const char* mqtt_pass = "lemontree";
 const char* topicRegister = "/device/register";
 char topicStatus[29] = "/device/";
 char topicService[40]= "/device/";
-//char topic[29] = "/device/";
 //Light parameters
 const byte brc = 10;
 const byte delays = 30;
 const byte MainBrightness = 40;
 const byte NotiBrightness = 20;
-const uint32_t PBColour = matrix.Color(255,255,255);
-const uint32_t NBColour = matrix.Color(0, 255, 0);
-const uint32_t NSColour = matrix.Color(255, 255, 255);
-const uint32_t NSGColour = matrix.Color(180, 255, 180);
+const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
+const uint32_t NBColour = matrix.Color(0, 255, 0); //Notification Background Colour
+const uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
+const uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour
 //Technical variables
 bool NotiOn = false;
 uint32_t lastReconnectAttempt = 0;
@@ -81,16 +74,30 @@ byte MqttRT = 0;
 const byte NetThreshold = 1;
 const byte GprsThreshold = 10;
 const byte MqttThreshold = 5;
-//Functions definition
+
+//FUNCTIONS DECLARATION
+//MQTT Functions
 bool mqttConnect();
-void mqttCallback(char* topic, byte* payload, unsigned int len);
-void NotiAct();
-void NotiDesact();
-void LampAct(uint32_t Color, byte Brightness);
+void mqttRX(char* topic, byte* payload, unsigned int len);
+//Notification Functions
+bool NotiOnEnable(); 
+void NotiCallback();
+bool NotiOnDisable();
+//Light Functions
+void LampAct(uint32_t Colour, byte Brightness);
 void Fadein(uint32_t fadecolor, int brightness);
+void FadeOut(uint32_t fadecolour, int brightness);
+//Service functions
 void error(int errcode);
 void PublishRSSI();
-
+void SignalTest();
+//TASKS
+//Task 1 - MQTT
+//Task 2 - Notification
+//Task 3 - Publish RSSI
+//Task tMQTT(TASK_IMMEDIATE, TASK_FOREVER);
+Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts, &NotiOnEnable, &NotiOnDisable);
+Task tRSSI(10000, TASK_FOREVER, &PublishRSSI, &ts);
 bool mqttConnect()
 {
   while (!mqtt.connected())
@@ -142,28 +149,26 @@ bool mqttConnect()
   return mqtt.connected();
 }
 
-void mqttCallback(char* topic, byte* payload, unsigned int len)
+void mqttRX(char* topic, byte* payload, unsigned int len)
 {
   SerialMon.print(F("Message ["));
   SerialMon.print(topic);
   SerialMon.print(F("]: "));
   SerialMon.write(payload, len);
   SerialMon.println();
-  //DynamicJsonDocument payld(100);
-  //deserializeJson(payld,payload);
+  DynamicJsonDocument payld(100);
+  deserializeJson(payld,payload);
   if (!strncmp((char *)payload, "on", len))
   {
     SerialMon.println(F("LED ON"));
-    Fadein(NBColour, NotiBrightness);
-    NotiOn = true;
+    tNotification.enable();
   }
   else if (!strncmp((char *)payload, "off", len))
   {
     SerialMon.println(F("LED OFF"));
     if(NotiOn)
     {
-      NotiOn = false;
-      NotiDesact();
+      tNotification.disable();
     }
   }
 }
@@ -214,18 +219,6 @@ void setup()
   }
   matrix.fillRect(0,0,8,16,PBColour);
   matrix.show();
-
-  /*if ( GSM_PIN && modem.getSimStatus() != 3 )
-    {
-    modem.simUnlock(GSM_PIN);
-    }*/
-  /*String ICCID = modem.getSimCCID();
-  Serial.print("SIM Card ICCID: "+ICCID);
-  if(ICCID = "")
-  {
-    Serial.print("Error 5: No SIM Card detected");
-    error(5);
-  }*/
   if(modem.getSimStatus() != 1)
   {
     //Serial.print("NO SIM");
@@ -236,12 +229,8 @@ void setup()
   {
     NetRT++;
     SerialMon.println("!OK");
-    //delay(10000);
     error(2);
-    return;
   }
-  
-  //SerialMon.println(" OK");
   if (modem.isNetworkConnected())
   {
     NetRT = 0;
@@ -254,15 +243,8 @@ void setup()
   int RSSI = -113 +(csq*2);
   SerialMon.print("RSSI? ");
   SerialMon.println(RSSI);
-  /*if ( GSM_PIN && modem.getSimStatus() != 3 )
-    {
-    modem.simUnlock(GSM_PIN);
-    }*/
-  
-#if TINY_GSM_USE_GPRS
 
   SerialMon.print("GPRS?");
-  //SerialMon.print(apn);
   if (!modem.gprsConnect(apn, gprsUser, gprsPass))
   {
     GprsRT++;
@@ -270,12 +252,10 @@ void setup()
     delay(10000);
     if(GprsRT > GprsThreshold)
     {
-      error(2);
+      error(2); 
     }
     return;
   }
-  //SerialMon.println(" ok");
-
   if (modem.isGprsConnected()) 
   {
     SerialMon.println(F(" OK"));
@@ -283,11 +263,14 @@ void setup()
     matrix.show();
 
   }
-#endif
+  ts.addTask(tNotification);
+  ts.addTask(tRSSI);
+  
+  tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  mqtt.setServer(broker, 1883);
-  mqtt.setCallback(mqttCallback);
+  mqtt.setServer(broker, 8883);
+  mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
   matrix.show();
   ServTimer = millis();
@@ -295,11 +278,7 @@ void setup()
 
 void loop()
 {
-  if (millis() - ServTimer >= ServTime)
-  {
-      ServTimer = millis();
-      PublishRSSI();
-  }
+  ts.execute();
   if (!mqtt.connected())
   {
     SerialMon.println(F("=== MQTT DISCONNECT ==="));
@@ -320,14 +299,19 @@ void loop()
     return;
 
   }
-  if (NotiOn)
-  {
-    //Serial.println("Notification");
-    NotiAct();
-  }
   mqtt.loop();
 }
-void NotiAct()
+bool NotiOnEnable()
+{
+    Fadein(NBColour, NotiBrightness);
+    return true;
+}
+bool NotiOnDisable()
+{
+  FadeOut(NBColour, NotiBrightness);
+  return true;
+}
+void NotiCallback()
 {
   
   for (byte i = 0; i <= 17; i++)
@@ -349,38 +333,35 @@ void NotiAct()
       matrix.setBrightness(100 - (i - 8)*brc);
       delay(delays);
     }
-
-    //int recBr = matrix.getBrightness();
-    //SerialMon.println(recBr);
   }
 }
-void NotiDesact()
+void FadeOut(uint32_t fadecolour, int brightness)
 {
-  matrix.setBrightness(NotiBrightness);
-  matrix.fillScreen(NBColour);
+  matrix.setBrightness(brightness);
+  matrix.fillScreen(fadecolour);
   matrix.show();
   
-  for (byte k = NotiBrightness; k > 0; k--)
+  for (byte k = brightness; k > 0; k--)
   {
-    matrix.fillScreen(NBColour);
+    matrix.fillScreen(fadecolour);
     matrix.setBrightness(k);
     matrix.show();
     delay(10);
   }
-  matrix.setBrightness(MainBrightness);
+  matrix.setBrightness(brightness);
   matrix.fillScreen(matrix.Color(0, 0, 0));
   matrix.show();
 }
-void LampAct(uint32_t Color, byte Brightness)
+void LampAct(uint32_t Colour, byte Brightness)
 {
-  for (byte j = 0; j < MainBrightness; j++)
+  for (byte j = 0; j < Brightness; j++)
   {
     matrix.setBrightness(j);
-    matrix.fillScreen(matrix.Color(255, 255, 255));
+    matrix.fillScreen(Colour);
     matrix.show();
   }
-  matrix.setBrightness(MainBrightness);
-  matrix.fillScreen(matrix.Color(255, 255, 255));
+  matrix.setBrightness(Brightness);
+  matrix.fillScreen(Colour);
   matrix.show();
 }
 void Fadein(uint32_t fadecolor, int brightness)
