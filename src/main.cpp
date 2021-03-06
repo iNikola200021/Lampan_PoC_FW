@@ -60,7 +60,6 @@ bool IsSetupComplete = false;
 String DeviceImei = "";
 char DeviceID[16];
 uint32_t ServTime = 10;
-//uint32_t ServTimer;
 //Error variables
 byte NetRT = 0;
 byte GprsRT = 0;
@@ -72,8 +71,8 @@ const byte MqttThreshold = 5;
 
 //FUNCTIONS DECLARATION
 //MQTT Functions
-bool mqttConnect();
-void mqttRX(char* topic, byte* payload, unsigned int len);
+void messageArrived(MQTT::MessageData& md);
+void connect();
 //Light Functions
 void LampAct(uint32_t Colour, byte Brightness);
 void Fadein(uint32_t fadecolor, int brightness);
@@ -88,100 +87,13 @@ void error(int errcode);
 void PublishRSSI();
 void SignalTest();
 //TASKS
-//Task 1 - MQTT
-//Task 2 - Notification
-//Task 3 - Publish RSSI
-//Task tMQTT(TASK_IMMEDIATE, TASK_FOREVER);
+//Task 1 - Notification
+//Task 2 - Publish RSSI
+//Task 3 - Signal Test
 Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tRSSI(ServTime*TASK_SECOND, TASK_FOREVER, &PublishRSSI, &ts);
 Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts);
 
-void connect()
-{
-
-  Serial.print("Connecting to ");
-  Serial.print(broker);
-  Serial.print(":");
-  Serial.println(port);
- 
-  int rc = ipstack.connect(broker, port);
-  if (rc != 1)
-  {
-    Serial.print("rc from TCP connect is ");
-    Serial.println(rc);
-  }
- 
-  Serial.println("MQTT connecting");
-  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;       
-  data.MQTTVersion = 3;
-  data.clientID.cstring = DeviceID;
-  data.username.cstring = mqtt_user;
-  data.password.cstring = mqtt_pass;
-  rc = client.connect(data);
-  if (rc != 0)
-  {
-    Serial.print("rc from MQTT connect is ");
-    Serial.println(rc);
-  }
-  Serial.println("MQTT connected");
-  MQTT::Message RegisterMsg;
-  RegisterMsg.qos = MQTT::QOS0;
-  RegisterMsg.retained = false;
-  RegisterMsg.dup = false;
-  RegisterMsg.payload = DeviceID;
-  RegisterMsg.payloadlen = strlen(DeviceID)+1;
-  rc = client.publish(topicRegister, RegisterMsg);
-  if (!IsSetupComplete) //Add Boot is Complete Animation
-      {
-        IsSetupComplete = true;
-        for (byte k = MainBrightness; k > 0; k--)
-        {
-            matrix.fillScreen(PBColour);
-            matrix.setBrightness(k);
-            matrix.show();
-            delay(10);
-        }
-        matrix.fillScreen(0);
-        matrix.show();
-      }
-  rc = client.subscribe(topicStatus, MQTT::QOS1, messageArrived);   
-  if (rc != 0)
-  {
-    Serial.print("rc from MQTT subscribe is ");
-    Serial.println(rc);
-  }
-  Serial.println("MQTT subscribed");
-  PublishRSSI;
-}
-void messageArrived(MQTT::MessageData& md)
-{
-  MQTT::Message &message = md.message;
-  
-  Serial.print("Message arrived: qos");
-  Serial.print(message.qos);
-  Serial.print(", retained ");
-  Serial.print(message.retained);
-  Serial.print(", dup ");
-  Serial.print(message.dup);
-  Serial.print(", packetid ");
-  Serial.println(message.id);
-  Serial.print("Payload ");
-  Serial.println((char*)message.payload);
-
-  if (!strncmp((char *)message.payload, "on", message.payloadlen))
-  {
-    SerialMon.println(F("LED ON"));
-    if(!tNotification.isEnabled())
-    {
-    tNotification.enable();
-    }
-  }
-  else if (!strncmp((char *)message.payload, "off", message.payloadlen))
-  {
-    SerialMon.println(F("LED OFF"));
-    tNotification.disable();
-  }
-}
 void setup()
 {
   SerialMon.begin();
@@ -287,6 +199,91 @@ void loop()
     {
     connect();
     }
+}
+void connect()
+{
+
+  Serial.print("Connecting to ");
+  Serial.print(broker);
+  Serial.print(":");
+  Serial.println(port);
+ 
+  int rc = ipstack.connect(broker, port);
+  if (rc != 1)
+  {
+    Serial.print("rc from TCP connect is ");
+    Serial.println(rc);
+  }
+  Serial.println("MQTT connecting");
+  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;       
+  data.MQTTVersion = 3;
+  data.clientID.cstring = DeviceID;
+  data.username.cstring = mqtt_user;
+  data.password.cstring = mqtt_pass;
+  rc = client.connect(data);
+  if (rc != 0)
+  {
+    Serial.print("rc from MQTT connect is ");
+    Serial.println(rc);
+  }
+  Serial.println("MQTT connected");
+  MQTT::Message RegisterMsg;
+  RegisterMsg.qos = MQTT::QOS0;
+  RegisterMsg.retained = false;
+  RegisterMsg.dup = false;
+  RegisterMsg.payload = DeviceID;
+  RegisterMsg.payloadlen = strlen(DeviceID)+1;
+  rc = client.publish(topicRegister, RegisterMsg);
+  if (!IsSetupComplete) //Add Boot is Complete Animation
+      {
+        IsSetupComplete = true;
+        for (byte k = MainBrightness; k > 0; k--)
+        {
+            matrix.fillScreen(PBColour);
+            matrix.setBrightness(k);
+            matrix.show();
+            delay(10);
+        }
+        matrix.fillScreen(0);
+        matrix.show();
+      }
+  rc = client.subscribe(topicStatus, MQTT::QOS1, messageArrived);   
+  if (rc != 0)
+  {
+    Serial.print("rc from MQTT subscribe is ");
+    Serial.println(rc);
+  }
+  Serial.println("MQTT subscribed");
+  PublishRSSI();
+}
+void messageArrived(MQTT::MessageData& md)
+{
+  MQTT::Message &message = md.message;
+  
+  Serial.print("Message arrived: qos");
+  Serial.print(message.qos);
+  Serial.print(", retained ");
+  Serial.print(message.retained);
+  Serial.print(", dup ");
+  Serial.print(message.dup);
+  Serial.print(", packetid ");
+  Serial.println(message.id);
+  Serial.print("Payload ");
+  Serial.println((char*)message.payload);
+
+  if (!strncmp((char *)message.payload, "on", message.payloadlen))
+  {
+    SerialMon.println(F("LED ON"));
+    if(!tNotification.isEnabled())
+    {
+    tNotification.enable();
+    }
+  }
+  else if (!strncmp((char *)message.payload, "off", message.payloadlen))
+  {
+    SerialMon.println(F("LED OFF"));
+    tNotification.disable();
+  }
 }
 bool NotiOnEnable()
 {
