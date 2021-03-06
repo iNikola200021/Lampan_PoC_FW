@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.0 alpha"
+#define FW_VERSION      "2.0.0"
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -14,6 +14,7 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <TaskScheduler.h>
+//#include "light.cpp"
 #define MATRIX_PIN PA7
 
 
@@ -29,7 +30,7 @@ const char BUILD[] = __DATE__ " " __TIME__;
 
 //Classes definition
 TinyGsm modem(SerialAT);
-TinyGsmClientSecure client(modem);
+TinyGsmClient client(modem);
 PubSubClient mqtt(client);
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
@@ -64,8 +65,8 @@ uint32_t lastReconnectAttempt = 0;
 bool IsSetupComplete = false;
 String DeviceImei = "";
 char DeviceID[16];
-uint32_t ServTime = 10000;
-uint32_t ServTimer;
+uint32_t ServTime = 10;
+//uint32_t ServTimer;
 //Error variables
 byte NetRT = 0;
 byte GprsRT = 0;
@@ -79,25 +80,26 @@ const byte MqttThreshold = 5;
 //MQTT Functions
 bool mqttConnect();
 void mqttRX(char* topic, byte* payload, unsigned int len);
-//Notification Functions
-bool NotiOnEnable(); 
-void NotiCallback();
-bool NotiOnDisable();
 //Light Functions
 void LampAct(uint32_t Colour, byte Brightness);
 void Fadein(uint32_t fadecolor, int brightness);
 void FadeOut(uint32_t fadecolour, int brightness);
+//Notification Functions
+bool NotiOnEnable(); 
+void NotiCallback();
+void NotiOnDisable();
+
 //Service functions
 void error(int errcode);
 void PublishRSSI();
-void SignalTest();
+
 //TASKS
 //Task 1 - MQTT
 //Task 2 - Notification
 //Task 3 - Publish RSSI
 //Task tMQTT(TASK_IMMEDIATE, TASK_FOREVER);
-Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts, &NotiOnEnable, &NotiOnDisable);
-Task tRSSI(10000, TASK_FOREVER, &PublishRSSI, &ts);
+Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
+Task tRSSI(ServTime*TASK_SECOND, TASK_FOREVER, &PublishRSSI, &ts);
 bool mqttConnect()
 {
   while (!mqtt.connected())
@@ -106,7 +108,6 @@ bool mqttConnect()
     if (mqtt.connect(DeviceID, mqtt_user, mqtt_pass))
     {
       Serial.println(F(" OK"));
-      //subscribe topic with default QoS 0
       mqtt.publish(topicRegister, DeviceID,16);
       int csq = modem.getSignalQuality();
       int RSSI = -113 +(csq*2);
@@ -156,34 +157,34 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
   SerialMon.print(F("]: "));
   SerialMon.write(payload, len);
   SerialMon.println();
-  DynamicJsonDocument payld(100);
-  deserializeJson(payld,payload);
+  //DynamicJsonDocument payld(100);
+  //deserializeJson(payld,payload);
   if (!strncmp((char *)payload, "on", len))
   {
     SerialMon.println(F("LED ON"));
+    if(!tNotification.isEnabled())
+    {
     tNotification.enable();
+    }
   }
   else if (!strncmp((char *)payload, "off", len))
   {
     SerialMon.println(F("LED OFF"));
-    if(NotiOn)
-    {
-      tNotification.disable();
-    }
+    tNotification.disable();
   }
 }
 
 
 void setup()
 {
-  delay(1000);
+  delay(2000);
   SerialMon.begin();
+  
   SerialMon.println(F("BOOT"));
   matrix.begin();
   matrix.setBrightness(MainBrightness);
   matrix.fillRect(0,0,2,16,PBColour);
   matrix.show();
-  //TinyGsmAutoBaud(SerialAT, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX);
   SerialAT.begin(115200);
   matrix.fillRect(0,0,4,16,PBColour);
   matrix.show();
@@ -191,17 +192,21 @@ void setup()
   // Restart takes quite some time
   // To skip it, call init() instead of restart()
   SerialMon.println("INIT");
+  SerialMon.print("Firmware ");
+  SerialMon.print(FW_NAME);  
+  SerialMon.print(", version ");
+  SerialMon.print(FW_VERSION);
+  SerialMon.print(",build ");  
+  SerialMon.println(BUILD);
   matrix.fillRect(0,0,6,16,PBColour);
   matrix.show();
-  modem.restart();
-  //modem.init();
-  //SerialMon.println(" OK");
+  //modem.restart();
+  modem.init();
   String modemInfo = modem.getModemInfo();
   SerialMon.print(F("Modem Info: "));
   SerialMon.println(modemInfo);
 
   DeviceImei = modem.getIMEI();
-  //SerialMon.println("Lamp IMEI number: "+ DeviceImei);
   DeviceImei.toCharArray(DeviceID, 16);
   SerialMon.print("Lamp ID number: ");
   SerialMon.println(DeviceID);
@@ -269,16 +274,17 @@ void setup()
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  mqtt.setServer(broker, 8883);
+  mqtt.setServer(broker, 1883);
   mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
   matrix.show();
-  ServTimer = millis();
+  mqttConnect();
+  //ServTimer = millis();
 }
 
 void loop()
 {
-  ts.execute();
+    ts.execute();
   if (!mqtt.connected())
   {
     SerialMon.println(F("=== MQTT DISCONNECT ==="));
@@ -299,6 +305,7 @@ void loop()
     return;
 
   }
+  
   mqtt.loop();
 }
 bool NotiOnEnable()
@@ -306,10 +313,10 @@ bool NotiOnEnable()
     Fadein(NBColour, NotiBrightness);
     return true;
 }
-bool NotiOnDisable()
+void NotiOnDisable()
 {
   FadeOut(NBColour, NotiBrightness);
-  return true;
+  //return true;
 }
 void NotiCallback()
 {
@@ -333,46 +340,11 @@ void NotiCallback()
       matrix.setBrightness(100 - (i - 8)*brc);
       delay(delays);
     }
+    yield();
   }
-}
-void FadeOut(uint32_t fadecolour, int brightness)
-{
-  matrix.setBrightness(brightness);
-  matrix.fillScreen(fadecolour);
-  matrix.show();
   
-  for (byte k = brightness; k > 0; k--)
-  {
-    matrix.fillScreen(fadecolour);
-    matrix.setBrightness(k);
-    matrix.show();
-    delay(10);
-  }
-  matrix.setBrightness(brightness);
-  matrix.fillScreen(matrix.Color(0, 0, 0));
-  matrix.show();
 }
-void LampAct(uint32_t Colour, byte Brightness)
-{
-  for (byte j = 0; j < Brightness; j++)
-  {
-    matrix.setBrightness(j);
-    matrix.fillScreen(Colour);
-    matrix.show();
-  }
-  matrix.setBrightness(Brightness);
-  matrix.fillScreen(Colour);
-  matrix.show();
-}
-void Fadein(uint32_t fadecolor, int brightness)
-{
-  for (byte j = 0; j < brightness; j++)
-  {
-    matrix.setBrightness(j);
-    matrix.fillScreen(fadecolor);
-    matrix.show();
-  }
-}
+
 void error(int errcode)
 {
     Serial.println("ERROR " + errcode);
@@ -428,6 +400,44 @@ void error(int errcode)
           delay(2000);
       }
     }
+}
+void FadeOut(uint32_t fadecolour, int brightness)
+{
+  matrix.setBrightness(brightness);
+  matrix.fillScreen(fadecolour);
+  matrix.show();
+  
+  for (byte k = brightness; k > 0; k--)
+  {
+    matrix.fillScreen(fadecolour);
+    matrix.setBrightness(k);
+    matrix.show();
+    delay(10);
+  }
+  matrix.setBrightness(brightness);
+  matrix.fillScreen(matrix.Color(0, 0, 0));
+  matrix.show();
+}
+void LampAct(uint32_t Colour, byte Brightness)
+{
+  for (byte j = 0; j < Brightness; j++)
+  {
+    matrix.setBrightness(j);
+    matrix.fillScreen(Colour);
+    matrix.show();
+  }
+  matrix.setBrightness(Brightness);
+  matrix.fillScreen(Colour);
+  matrix.show();
+}
+void Fadein(uint32_t fadecolor, int brightness)
+{
+  for (byte j = 0; j < brightness; j++)
+  {
+    matrix.setBrightness(j);
+    matrix.fillScreen(fadecolor);
+    matrix.show();
+  }
 }
 void PublishRSSI ()
 {
