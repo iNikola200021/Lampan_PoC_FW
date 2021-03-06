@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.0"
+#define FW_VERSION      "2.0.1"
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -14,7 +14,6 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <TaskScheduler.h>
-//#include "light.cpp"
 #define MATRIX_PIN PA7
 
 
@@ -92,7 +91,7 @@ void NotiOnDisable();
 //Service functions
 void error(int errcode);
 void PublishRSSI();
-
+void SignalTest();
 //TASKS
 //Task 1 - MQTT
 //Task 2 - Notification
@@ -100,6 +99,7 @@ void PublishRSSI();
 //Task tMQTT(TASK_IMMEDIATE, TASK_FOREVER);
 Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tRSSI(ServTime*TASK_SECOND, TASK_FOREVER, &PublishRSSI, &ts);
+Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts);
 bool mqttConnect()
 {
   while (!mqtt.connected())
@@ -446,4 +446,29 @@ void PublishRSSI ()
       char serrssi[4];
       itoa(RSSI, serrssi, 10);
       mqtt.publish(topicService, serrssi);
+}
+void SignalTest ()
+{
+    int csq = modem.getSignalQuality();
+    int RSSI = -113 +(csq*2);
+    if (RSSI <=  -110)
+    {
+        matrix.fillScreen(matrix.Color(139,0,0));
+    }
+    else if (RSSI >  -110 && RSSI < -100)
+    {
+        matrix.fillScreen(matrix.Color(220,20,60));
+    }
+    else if (RSSI >=  -100 && RSSI < -85)
+    {
+        matrix.fillScreen(matrix.Color(255,165,0));
+    }
+    else if (RSSI >=  -85 && RSSI < -70)
+    {
+        matrix.fillScreen(matrix.Color(255,255,0));
+    }
+    else if (RSSI >=  -70)
+    {
+        matrix.fillScreen(matrix.Color(0,0,255));
+    }
 }
