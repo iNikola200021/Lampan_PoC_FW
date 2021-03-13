@@ -1,20 +1,18 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.1"
-
+#define FW_VERSION      "STM32 Maple 0.0.1 alpha (FastLED)"
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <Adafruit_NeoMatrix.h>
-//#include <Adafruit_GFX.h>
-//#include <Adafruit_NeoPixel.h>
+#include <FastLED.h>
+#include <FastLED_NeoMatrix.h>
 #include <TinyGsmClient.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <TaskScheduler.h>
-#define MATRIX_PIN PA7
+#define MATRIX_PIN 17
 
 
 #define GSM_AUTOBAUD_MIN 9600
@@ -31,10 +29,14 @@ const char BUILD[] = __DATE__ " " __TIME__;
 TinyGsm modem(SerialAT);
 TinyGsmClient client(modem);
 PubSubClient mqtt(client);
-Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
-                            NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
-                            NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG,
-                            NEO_GRB            + NEO_KHZ800);
+
+#define mw 16
+#define mh 16
+#define NUMMATRIX (mw*mh)
+CRGB leds[NUMMATRIX];
+FastLED_NeoMatrix *matrix = new FastLED_NeoMatrix(leds, mw, mh, 
+  NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
+    NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG);
 
 Scheduler ts;
 
@@ -54,10 +56,10 @@ const byte brc = 10;
 const byte delays = 30;
 const byte MainBrightness = 40;
 const byte NotiBrightness = 20;
-const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
-const uint32_t NBColour = matrix.Color(0, 255, 0); //Notification Background Colour
-const uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
-const uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour
+const uint32_t PBColour = matrix->Color(255,255,255); //Progress Bar Colour
+const uint32_t NBColour = matrix->Color(0, 255, 0); //Notification Background Colour
+const uint32_t NSColour = matrix->Color(255, 255, 255); //Notification Strip Colour
+const uint32_t NSGColour = matrix->Color(180, 255, 180); //Notification Gradient Colour
 //Technical variables
 bool NotiOn = false;
 uint32_t lastReconnectAttempt = 0;
@@ -120,13 +122,13 @@ bool mqttConnect()
         IsSetupComplete = true;
         for (byte k = MainBrightness; k > 0; k--)
         {
-            matrix.fillScreen(PBColour);
-            matrix.setBrightness(k);
-            matrix.show();
+            matrix->fillScreen(PBColour);
+            matrix->setBrightness(k);
+            matrix->show();
             delay(10);
         }
-        matrix.fillScreen(0);
-        matrix.show();
+        matrix->fillScreen(0);
+        matrix->show();
       }
     }
     else
@@ -181,13 +183,14 @@ void setup()
   SerialMon.begin();
   
   SerialMon.println(F("BOOT"));
-  matrix.begin();
-  matrix.setBrightness(MainBrightness);
-  matrix.fillRect(0,0,2,16,PBColour);
-  matrix.show();
+  FastLED.addLeds<NEOPIXEL,MATRIX_PIN>(leds, NUMMATRIX);
+  matrix->begin();
+  matrix->setBrightness(MainBrightness);
+  matrix->fillRect(0,0,2,16,PBColour);
+  matrix->show();
   SerialAT.begin(115200);
-  matrix.fillRect(0,0,4,16,PBColour);
-  matrix.show();
+  matrix->fillRect(0,0,4,16,PBColour);
+  matrix->show();
   delay(6000);
   // Restart takes quite some time
   // To skip it, call init() instead of restart()
@@ -198,8 +201,8 @@ void setup()
   SerialMon.print(FW_VERSION);
   SerialMon.print(",build ");  
   SerialMon.println(BUILD);
-  matrix.fillRect(0,0,6,16,PBColour);
-  matrix.show();
+  matrix->fillRect(0,0,6,16,PBColour);
+  matrix->show();
   //modem.restart();
   modem.init();
   String modemInfo = modem.getModemInfo();
@@ -222,8 +225,8 @@ void setup()
     SerialMon.println("Error 1: No modem");
     error(1);
   }
-  matrix.fillRect(0,0,8,16,PBColour);
-  matrix.show();
+  matrix->fillRect(0,0,8,16,PBColour);
+  matrix->show();
   if(modem.getSimStatus() != 1)
   {
     //Serial.print("NO SIM");
@@ -241,8 +244,8 @@ void setup()
     NetRT = 0;
     SerialMon.println("OK");
 
-    matrix.fillRect(0,0,10,16,PBColour);
-    matrix.show();
+    matrix->fillRect(0,0,10,16,PBColour);
+    matrix->show();
   }
   int csq = modem.getSignalQuality();
   int RSSI = -113 +(csq*2);
@@ -264,8 +267,8 @@ void setup()
   if (modem.isGprsConnected()) 
   {
     SerialMon.println(F(" OK"));
-    matrix.fillRect(0,0,12,16,PBColour);
-    matrix.show();
+    matrix->fillRect(0,0,12,16,PBColour);
+    matrix->show();
 
   }
   ts.addTask(tNotification);
@@ -276,8 +279,8 @@ void setup()
   SerialMon.println(F("SETUP"));
   mqtt.setServer(broker, 1883);
   mqtt.setCallback(mqttRX);
-  matrix.fillRect(0,0,14,16,PBColour);
-  matrix.show();
+  matrix->fillRect(0,0,14,16,PBColour);
+  matrix->show();
   mqttConnect();
   //ServTimer = millis();
 }
@@ -323,21 +326,21 @@ void NotiCallback()
   
   for (byte i = 0; i <= 17; i++)
   {
-    matrix.fillScreen(NBColour);
-    matrix.drawLine(i, 0, i, 16, NSColour);
-    matrix.drawLine(i + 1, 0, i + 1, 16, NSGColour);
-    matrix.drawLine(i - 1, 0, i - 1, 16, NSGColour);
-    matrix.show();
+    matrix->fillScreen(NBColour);
+    matrix->drawLine(i, 0, i, 16, NSColour);
+    matrix->drawLine(i + 1, 0, i + 1, 16, NSGColour);
+    matrix->drawLine(i - 1, 0, i - 1, 16, NSGColour);
+    matrix->show();
     if (i <= 8)
     {
       //delay(delays-(i*delayk));
       delay(delays);
-      matrix.setBrightness(NotiBrightness + (i * brc));
+      matrix->setBrightness(NotiBrightness + (i * brc));
     }
     else
     {
       // delay(delays-(8*delayk)+(i*delayk));
-      matrix.setBrightness(100 - (i - 8)*brc);
+      matrix->setBrightness(100 - (i - 8)*brc);
       delay(delays);
     }
     yield();
@@ -349,54 +352,54 @@ void error(int errcode)
     Serial.println("ERROR " + errcode);
     while(1)
     {
-      matrix.fillScreen(matrix.Color(255,0,0));
+      matrix->fillScreen(matrix->Color(255,0,0));
       
-      matrix.show();
+      matrix->show();
       delay(2000);
       switch (errcode)
       {
         case 1: //Blank IMEI -> No connection with the modem
-          matrix.fillScreen(matrix.Color(0,0,0));
-          matrix.drawLine(8,0,8,16,matrix.Color(255,0,0));
-          matrix.show();
+          matrix->fillScreen(matrix->Color(0,0,0));
+          matrix->drawLine(8,0,8,16,matrix->Color(255,0,0));
+          matrix->show();
           delay(2000);
           break;
 
         case 2: //No NET
-          matrix.fillScreen(matrix.Color(0,0,0));
-          matrix.drawLine(7,0,7,16, matrix.Color(255,0,0));
-          matrix.drawLine(9,0,9,16,matrix.Color(0,255,0));
-          matrix.show();
+          matrix->fillScreen(matrix->Color(0,0,0));
+          matrix->drawLine(7,0,7,16, matrix->Color(255,0,0));
+          matrix->drawLine(9,0,9,16,matrix->Color(0,255,0));
+          matrix->show();
           delay(2000);
           break;
 
         case 3: //No GPRS
-          matrix.fillScreen(matrix.Color(0,0,0));
-          matrix.drawLine(6,0,6,16, matrix.Color(255,0,0));
-          matrix.drawLine(8,0,8,16,matrix.Color(0,255,0));
-          matrix.drawLine(10,0,10,16,matrix.Color(0,0,255));
-          matrix.show();
+          matrix->fillScreen(matrix->Color(0,0,0));
+          matrix->drawLine(6,0,6,16, matrix->Color(255,0,0));
+          matrix->drawLine(8,0,8,16,matrix->Color(0,255,0));
+          matrix->drawLine(10,0,10,16,matrix->Color(0,0,255));
+          matrix->show();
           delay(2000);
           break;
 
         case 4: //No MQTT
-          matrix.fillScreen(matrix.Color(0,0,0));
-          matrix.drawLine(5,0,5,16, matrix.Color(255,0,0));
-          matrix.drawLine(7,0,7,16, matrix.Color(0,255,0));
-          matrix.drawLine(9,0,9,16,matrix.Color(255,255,255));
-          matrix.drawLine(11,0,11,16,matrix.Color(0,0,255));
-          matrix.show();
+          matrix->fillScreen(matrix->Color(0,0,0));
+          matrix->drawLine(5,0,5,16, matrix->Color(255,0,0));
+          matrix->drawLine(7,0,7,16, matrix->Color(0,255,0));
+          matrix->drawLine(9,0,9,16,matrix->Color(255,255,255));
+          matrix->drawLine(11,0,11,16,matrix->Color(0,0,255));
+          matrix->show();
           delay(2000);
           break;
           
         case 5: //No SIM
-          matrix.fillScreen(matrix.Color(0,0,0));
-          matrix.drawLine(4,0,4,16, matrix.Color(255,0,0));
-          matrix.drawLine(6,0,6,16, matrix.Color(0,255,0));
-          matrix.drawLine(8,0,8,16,matrix.Color(255,255,255));
-          matrix.drawLine(10,0,10,16,matrix.Color(0,0,255));
-          matrix.drawLine(12,0,12,16, matrix.Color(255,0,0));
-          matrix.show();
+          matrix->fillScreen(matrix->Color(0,0,0));
+          matrix->drawLine(4,0,4,16, matrix->Color(255,0,0));
+          matrix->drawLine(6,0,6,16, matrix->Color(0,255,0));
+          matrix->drawLine(8,0,8,16,matrix->Color(255,255,255));
+          matrix->drawLine(10,0,10,16,matrix->Color(0,0,255));
+          matrix->drawLine(12,0,12,16, matrix->Color(255,0,0));
+          matrix->show();
           delay(2000);
           break;
       }
@@ -404,40 +407,40 @@ void error(int errcode)
 }
 void FadeOut(uint32_t fadecolour, int brightness)
 {
-  matrix.setBrightness(brightness);
-  matrix.fillScreen(fadecolour);
-  matrix.show();
+  matrix->setBrightness(brightness);
+  matrix->fillScreen(fadecolour);
+  matrix->show();
   
   for (byte k = brightness; k > 0; k--)
   {
-    matrix.fillScreen(fadecolour);
-    matrix.setBrightness(k);
-    matrix.show();
+    matrix->fillScreen(fadecolour);
+    matrix->setBrightness(k);
+    matrix->show();
     delay(10);
   }
-  matrix.setBrightness(brightness);
-  matrix.fillScreen(matrix.Color(0, 0, 0));
-  matrix.show();
+  matrix->setBrightness(brightness);
+  matrix->fillScreen(matrix->Color(0, 0, 0));
+  matrix->show();
 }
 void LampAct(uint32_t Colour, byte Brightness)
 {
   for (byte j = 0; j < Brightness; j++)
   {
-    matrix.setBrightness(j);
-    matrix.fillScreen(Colour);
-    matrix.show();
+    matrix->setBrightness(j);
+    matrix->fillScreen(Colour);
+    matrix->show();
   }
-  matrix.setBrightness(Brightness);
-  matrix.fillScreen(Colour);
-  matrix.show();
+  matrix->setBrightness(Brightness);
+  matrix->fillScreen(Colour);
+  matrix->show();
 }
 void Fadein(uint32_t fadecolor, int brightness)
 {
   for (byte j = 0; j < brightness; j++)
   {
-    matrix.setBrightness(j);
-    matrix.fillScreen(fadecolor);
-    matrix.show();
+    matrix->setBrightness(j);
+    matrix->fillScreen(fadecolor);
+    matrix->show();
   }
 }
 void PublishRSSI ()
@@ -454,22 +457,22 @@ void SignalTest ()
     int RSSI = -113 +(csq*2);
     if (RSSI <=  -110)
     {
-        matrix.fillScreen(matrix.Color(139,0,0));
+        matrix->fillScreen(matrix->Color(139,0,0));
     }
     else if (RSSI >  -110 && RSSI < -100)
     {
-        matrix.fillScreen(matrix.Color(220,20,60));
+        matrix->fillScreen(matrix->Color(220,20,60));
     }
     else if (RSSI >=  -100 && RSSI < -85)
     {
-        matrix.fillScreen(matrix.Color(255,165,0));
+        matrix->fillScreen(matrix->Color(255,165,0));
     }
     else if (RSSI >=  -85 && RSSI < -70)
     {
-        matrix.fillScreen(matrix.Color(255,255,0));
+        matrix->fillScreen(matrix->Color(255,255,0));
     }
     else if (RSSI >=  -70)
     {
-        matrix.fillScreen(matrix.Color(0,0,255));
+        matrix->fillScreen(matrix->Color(0,0,255));
     }
 }

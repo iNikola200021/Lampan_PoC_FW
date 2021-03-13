@@ -8,6 +8,7 @@
         "istream": "cpp",
         "ostream": "cpp",
         "sstream": "cpp",
-        "streambuf": "cpp"
+        "streambuf": "cpp",
+        "*.tpp": "cpp"
     }
 }
