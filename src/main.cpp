@@ -184,6 +184,7 @@ void setup()
   
   SerialMon.println(F("BOOT"));
   FastLED.addLeds<NEOPIXEL,MATRIX_PIN>(leds, NUMMATRIX);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5,3000);
   matrix->begin();
   matrix->setBrightness(MainBrightness);
   matrix->fillRect(0,0,2,16,PBColour);
