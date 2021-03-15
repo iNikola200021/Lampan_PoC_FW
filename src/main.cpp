@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "3.0.0 alpha"
+#define FW_VERSION      "3.0.0"
 
 #define TINY_GSM_MODEM_SIM800
 #include <Arduino.h>
@@ -195,10 +195,11 @@ void setup()
 void loop()
 {
     ts.execute();
-    if (!client.isConnected())
+    if (!client.yield())
     {
     connect();
     }
+    
 }
 void connect()
 {
@@ -247,13 +248,14 @@ void connect()
         matrix.fillScreen(0);
         matrix.show();
       }
-  rc = client.subscribe(topicStatus, MQTT::QOS1, messageArrived);   
-  if (rc != 0)
+  rc = client.subscribe(topicStatus, MQTT::QOS0, messageArrived);   
+  if (rc == 0)
   {
+    Serial.println("MQTT subscribed");
     Serial.print("rc from MQTT subscribe is ");
     Serial.println(rc);
   }
-  Serial.println("MQTT subscribed");
+  //Serial.println("MQTT subscribed");
   PublishRSSI();
 }
 void messageArrived(MQTT::MessageData& md)
@@ -316,7 +318,7 @@ void NotiCallback()
       matrix.setBrightness(100 - (i - 8)*brc);
       delay(delays);
     }
-    yield();
+    //yield();
   }
   
 }
