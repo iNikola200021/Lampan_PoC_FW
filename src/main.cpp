@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.1"
+#define FW_VERSION      "2.1.0 alpha"
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -14,8 +14,47 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <TaskScheduler.h>
+#include <SSLClient.h>
+#include <certificates.h>
 #define MATRIX_PIN PA7
 
+const char my_cert[] = "-----BEGIN CERTIFICATE-----\n"
+"MIIF2DCCA8CgAwIBAgIQTKr5yttjb+Af907YWwOGnTANBgkqhkiG9w0BAQwFADCB\n"
+"hTELMAkGA1UEBhMCR0IxGzAZBgNVBAgTEkdyZWF0ZXIgTWFuY2hlc3RlcjEQMA4G\n"
+"A1UEBxMHU2FsZm9yZDEaMBgGA1UEChMRQ09NT0RPIENBIExpbWl0ZWQxKzApBgNV\n"
+"BAMTIkNPTU9ETyBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMTAwMTE5\n"
+"MDAwMDAwWhcNMzgwMTE4MjM1OTU5WjCBhTELMAkGA1UEBhMCR0IxGzAZBgNVBAgT\n"
+"EkdyZWF0ZXIgTWFuY2hlc3RlcjEQMA4GA1UEBxMHU2FsZm9yZDEaMBgGA1UEChMR\n"
+"Q09NT0RPIENBIExpbWl0ZWQxKzApBgNVBAMTIkNPTU9ETyBSU0EgQ2VydGlmaWNh\n"
+"dGlvbiBBdXRob3JpdHkwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCR\n"
+"6FSS0gpWsawNJN3Fz0RndJkrN6N9I3AAcbxT38T6KhKPS38QVr2fcHK3YX/JSw8X\n"
+"pz3jsARh7v8Rl8f0hj4K+j5c+ZPmNHrZFGvnnLOFoIJ6dq9xkNfs/Q36nGz637CC\n"
+"9BR++b7Epi9Pf5l/tfxnQ3K9DADWietrLNPtj5gcFKt+5eNu/Nio5JIk2kNrYrhV\n"
+"/erBvGy2i/MOjZrkm2xpmfh4SDBF1a3hDTxFYPwyllEnvGfDyi62a+pGx8cgoLEf\n"
+"Zd5ICLqkTqnyg0Y3hOvozIFIQ2dOciqbXL1MGyiKXCJ7tKuY2e7gUYPDCUZObT6Z\n"
+"+pUX2nwzV0E8jVHtC7ZcryxjGt9XyD+86V3Em69FmeKjWiS0uqlWPc9vqv9JWL7w\n"
+"qP/0uK3pN/u6uPQLOvnoQ0IeidiEyxPx2bvhiWC4jChWrBQdnArncevPDt09qZah\n"
+"SL0896+1DSJMwBGB7FY79tOi4lu3sgQiUpWAk2nojkxl8ZEDLXB0AuqLZxUpaVIC\n"
+"u9ffUGpVRr+goyhhf3DQw6KqLCGqR84onAZFdr+CGCe01a60y1Dma/RMhnEw6abf\n"
+"Fobg2P9A3fvQQoh/ozM6LlweQRGBY84YcWsr7KaKtzFcOmpH4MN5WdYgGq/yapiq\n"
+"crxXStJLnbsQ/LBMQeXtHT1eKJ2czL+zUdqnR+WEUwIDAQABo0IwQDAdBgNVHQ4E\n"
+"FgQUu69+Aj36pvE8hI6t7jiY7NkyMtQwDgYDVR0PAQH/BAQDAgEGMA8GA1UdEwEB\n"
+"/wQFMAMBAf8wDQYJKoZIhvcNAQEMBQADggIBAArx1UaEt65Ru2yyTUEUAJNMnMvl\n"
+"wFTPoCWOAvn9sKIN9SCYPBMtrFaisNZ+EZLpLrqeLppysb0ZRGxhNaKatBYSaVqM\n"
+"4dc+pBroLwP0rmEdEBsqpIt6xf4FpuHA1sj+nq6PK7o9mfjYcwlYRm6mnPTXJ9OV\n"
+"2jeDchzTc+CiR5kDOF3VSXkAKRzH7JsgHAckaVd4sjn8OoSgtZx8jb8uk2Intzna\n"
+"FxiuvTwJaP+EmzzV1gsD41eeFPfR60/IvYcjt7ZJQ3mFXLrrkguhxuhoqEwWsRqZ\n"
+"CuhTLJK7oQkYdQxlqHvLI7cawiiFwxv/0Cti76R7CZGYZ4wUAc1oBmpjIXUDgIiK\n"
+"boHGhfKppC3n9KUkEEeDys30jXlYsQab5xoq2Z0B15R97QNKyvDb6KkBPvVWmcke\n"
+"jkk9u+UJueBPSZI9FoJAzMxZxuY67RIuaTxslbH9qh17f4a+Hg4yRvv7E491f0yL\n"
+"S0Zj/gA0QHDBw7mh3aZw4gSzQbzpgJHqZJx64SIDqZxubw5lT2yHh17zbqD5daWb\n"
+"QOhTsiedSrnAdyGN/4fy3ryM7xfft0kL0fJuMAsaDk527RH89elWsn2/x20Kk4yl\n"
+"0MC2Hb46TpSi125sC8KKfPog88Tk5c0NqMuRkrF8hey1FGlmDoLnzc7ILaZRfyHB\n"
+"NVOFBkpdn627G190\n"
+"-----END CERTIFICATE-----\n";
+const char my_key[] = "-----BEGIN EC PRIVATE KEY-----\n"
+"-----END EC PRIVATE KEY-----\n";
+SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);
 
 #define GSM_AUTOBAUD_MIN 9600
 #define GSM_AUTOBAUD_MAX 115200
@@ -29,7 +68,8 @@ const char BUILD[] = __DATE__ " " __TIME__;
 
 //Classes definition
 TinyGsm modem(SerialAT);
-TinyGsmClient client(modem);
+TinyGsmClient GSMclient(modem);
+SSLClient client(GSMclient, TAs, (size_t)TAs_NUM, PA10);
 PubSubClient mqtt(client);
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
@@ -50,9 +90,9 @@ const char* topicRegister = "/device/register";
 char topicStatus[29] = "/device/";
 char topicService[40]= "/device/";
 //Light parameters
-const byte brc = 10;
+const uint32_t brc = 10;
 const byte delays = 30;
-const byte MainBrightness = 40;
+const byte MainBrightness = 100;
 const byte NotiBrightness = 20;
 const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
 const uint32_t NBColour = matrix.Color(0, 255, 0); //Notification Background Colour
@@ -274,6 +314,7 @@ void setup()
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
+  client.setMutualAuthParams(mTLS);
   mqtt.setServer(broker, 1883);
   mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
