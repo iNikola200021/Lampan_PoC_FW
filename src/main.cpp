@@ -17,45 +17,6 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #include <SSLClient.h>
 #include <certificates.h>
 #define MATRIX_PIN PA7
-
-const char my_cert[] = "-----BEGIN CERTIFICATE-----\n"
-"MIIF2DCCA8CgAwIBAgIQTKr5yttjb+Af907YWwOGnTANBgkqhkiG9w0BAQwFADCB\n"
-"hTELMAkGA1UEBhMCR0IxGzAZBgNVBAgTEkdyZWF0ZXIgTWFuY2hlc3RlcjEQMA4G\n"
-"A1UEBxMHU2FsZm9yZDEaMBgGA1UEChMRQ09NT0RPIENBIExpbWl0ZWQxKzApBgNV\n"
-"BAMTIkNPTU9ETyBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMTAwMTE5\n"
-"MDAwMDAwWhcNMzgwMTE4MjM1OTU5WjCBhTELMAkGA1UEBhMCR0IxGzAZBgNVBAgT\n"
-"EkdyZWF0ZXIgTWFuY2hlc3RlcjEQMA4GA1UEBxMHU2FsZm9yZDEaMBgGA1UEChMR\n"
-"Q09NT0RPIENBIExpbWl0ZWQxKzApBgNVBAMTIkNPTU9ETyBSU0EgQ2VydGlmaWNh\n"
-"dGlvbiBBdXRob3JpdHkwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCR\n"
-"6FSS0gpWsawNJN3Fz0RndJkrN6N9I3AAcbxT38T6KhKPS38QVr2fcHK3YX/JSw8X\n"
-"pz3jsARh7v8Rl8f0hj4K+j5c+ZPmNHrZFGvnnLOFoIJ6dq9xkNfs/Q36nGz637CC\n"
-"9BR++b7Epi9Pf5l/tfxnQ3K9DADWietrLNPtj5gcFKt+5eNu/Nio5JIk2kNrYrhV\n"
-"/erBvGy2i/MOjZrkm2xpmfh4SDBF1a3hDTxFYPwyllEnvGfDyi62a+pGx8cgoLEf\n"
-"Zd5ICLqkTqnyg0Y3hOvozIFIQ2dOciqbXL1MGyiKXCJ7tKuY2e7gUYPDCUZObT6Z\n"
-"+pUX2nwzV0E8jVHtC7ZcryxjGt9XyD+86V3Em69FmeKjWiS0uqlWPc9vqv9JWL7w\n"
-"qP/0uK3pN/u6uPQLOvnoQ0IeidiEyxPx2bvhiWC4jChWrBQdnArncevPDt09qZah\n"
-"SL0896+1DSJMwBGB7FY79tOi4lu3sgQiUpWAk2nojkxl8ZEDLXB0AuqLZxUpaVIC\n"
-"u9ffUGpVRr+goyhhf3DQw6KqLCGqR84onAZFdr+CGCe01a60y1Dma/RMhnEw6abf\n"
-"Fobg2P9A3fvQQoh/ozM6LlweQRGBY84YcWsr7KaKtzFcOmpH4MN5WdYgGq/yapiq\n"
-"crxXStJLnbsQ/LBMQeXtHT1eKJ2czL+zUdqnR+WEUwIDAQABo0IwQDAdBgNVHQ4E\n"
-"FgQUu69+Aj36pvE8hI6t7jiY7NkyMtQwDgYDVR0PAQH/BAQDAgEGMA8GA1UdEwEB\n"
-"/wQFMAMBAf8wDQYJKoZIhvcNAQEMBQADggIBAArx1UaEt65Ru2yyTUEUAJNMnMvl\n"
-"wFTPoCWOAvn9sKIN9SCYPBMtrFaisNZ+EZLpLrqeLppysb0ZRGxhNaKatBYSaVqM\n"
-"4dc+pBroLwP0rmEdEBsqpIt6xf4FpuHA1sj+nq6PK7o9mfjYcwlYRm6mnPTXJ9OV\n"
-"2jeDchzTc+CiR5kDOF3VSXkAKRzH7JsgHAckaVd4sjn8OoSgtZx8jb8uk2Intzna\n"
-"FxiuvTwJaP+EmzzV1gsD41eeFPfR60/IvYcjt7ZJQ3mFXLrrkguhxuhoqEwWsRqZ\n"
-"CuhTLJK7oQkYdQxlqHvLI7cawiiFwxv/0Cti76R7CZGYZ4wUAc1oBmpjIXUDgIiK\n"
-"boHGhfKppC3n9KUkEEeDys30jXlYsQab5xoq2Z0B15R97QNKyvDb6KkBPvVWmcke\n"
-"jkk9u+UJueBPSZI9FoJAzMxZxuY67RIuaTxslbH9qh17f4a+Hg4yRvv7E491f0yL\n"
-"S0Zj/gA0QHDBw7mh3aZw4gSzQbzpgJHqZJx64SIDqZxubw5lT2yHh17zbqD5daWb\n"
-"QOhTsiedSrnAdyGN/4fy3ryM7xfft0kL0fJuMAsaDk527RH89elWsn2/x20Kk4yl\n"
-"0MC2Hb46TpSi125sC8KKfPog88Tk5c0NqMuRkrF8hey1FGlmDoLnzc7ILaZRfyHB\n"
-"NVOFBkpdn627G190\n"
-"-----END CERTIFICATE-----\n";
-const char my_key[] = "-----BEGIN EC PRIVATE KEY-----\n"
-"-----END EC PRIVATE KEY-----\n";
-SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);
-
 #define GSM_AUTOBAUD_MIN 9600
 #define GSM_AUTOBAUD_MAX 115200
 // Add a reception delay - may be needed for a fast processor at a slow baud rate
@@ -65,12 +26,64 @@ SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert,
 #define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
 #define SerialAT Serial1
-
+const char my_cert[] = 
+"-----BEGIN CERTIFICATE-----\n"
+"MIIDtTCCAp0CFFC34Ac6H4/t3DXcRgfS0CTeF1OHMA0GCSqGSIb3DQEBCwUAMIGI\n"
+"MQswCQYDVQQGEwJSVTEPMA0GA1UECAwGTW9zY293MQ8wDQYDVQQHDAZNb3Njb3cx\n"
+"FTATBgNVBAoMDElvVCBDcmVhdGl2ZTELMAkGA1UECwwCSFExDTALBgNVBAMMBG1x\n"
+"dHQxJDAiBgkqhkiG9w0BCQEWFWFydGh1cnNtYWluQGdtYWlsLmNvbTAeFw0yMTAz\n"
+"MTcwOTAyNTdaFw0yMjAzMTIwOTAyNTdaMIGkMQswCQYDVQQGEwJSVTEPMA0GA1UE\n"
+"CAwGTW9zY293MQ8wDQYDVQQHDAZNb3Njb3cxHDAaBgNVBAoME0lvVCBDcmVhdGl2\n"
+"ZSBDbGllbnQxDzANBgNVBAsMBkNsaWVudDEUMBIGA1UEAwwLbXF0dC1jbGllbnQx\n"
+"LjAsBgkqhkiG9w0BCQEWH21xdHQtY2xpZW50QG1xdHQuaW90Y3JlYXRpdmUucnUw\n"
+"ggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD3H6kpoHDJhEEaOZLt/Nle\n"
+"pSZxcpENKCZO8J3SO3x14qFy4ZNJE1Xk6bVt488EgwVp9Re0nDenDHrghiUlYQMe\n"
+"mvqKQsiJL4MLtlfVRElH6mkxEi6J9IcyLTFbHaj9bzjVUFWAFk6Y6C5hHTBF0LoJ\n"
+"aUx/iWIcTHzpaTv2N9wE1Vc6CW9CjLPx6MV9BLg2XcZFGAyRpqnwSmsMVV7X5j0U\n"
+"pCacRHn91Da148E2iOP9NsYuCl6ndFDB2M1SPi6t/iM8Hy7jGCRwCNhh+Rmxqovh\n"
+"0/M+t/f/aOO9oxtseqr3EHIhrYbbkJx1H7DcEElEGJOW/Coe+g/t4lxohWqp4OyB\n"
+"AgMBAAEwDQYJKoZIhvcNAQELBQADggEBAGJOJOKUnM5yt888jd9/WejrewZkxZS+\n"
+"qLADJSpURReqySP2SkUrogfYSQ7VuIhAhcF1hADjR1pSmDcRhUVbUEShY7edkvb/\n"
+"2EfmgBm0tKu7+1Jf04e0Q7QZEMvDmgZxmRvq4fU07r0JPObYiJYnOvi8Fj6uEjbx\n"
+"pO9TlBbJoJFl9zWNjL85Gm8IIcvM5LVzyjlthlOv2vd/FpwFldlDHkBS357pKRvQ\n"
+"5BHEnYuZ/XccHntnEeFeRK6T2YwZMsiPDYFe43237fNvayYTkdlm7/iiTvBWC4XL\n"
+"q5JMjoNCjiV5ZLCNYwuGjUku5L/gwvAgGNpTrbLegMDJbsHy/n9jFrY=\n"
+"-----END CERTIFICATE-----";
+const char my_key[] = 
+"-----BEGIN RSA PRIVATE KEY-----\n"
+"MIIEpQIBAAKCAQEA9x+pKaBwyYRBGjmS7fzZXqUmcXKRDSgmTvCd0jt8deKhcuGT\n"
+"SRNV5Om1bePPBIMFafUXtJw3pwx64IYlJWEDHpr6ikLIiS+DC7ZX1URJR+ppMRIu\n"
+"ifSHMi0xWx2o/W841VBVgBZOmOguYR0wRdC6CWlMf4liHEx86Wk79jfcBNVXOglv\n"
+"Qoyz8ejFfQS4Nl3GRRgMkaap8EprDFVe1+Y9FKQmnER5/dQ2tePBNojj/TbGLgpe\n"
+"p3RQwdjNUj4urf4jPB8u4xgkcAjYYfkZsaqL4dPzPrf3/2jjvaMbbHqq9xByIa2G\n"
+"25CcdR+w3BBJRBiTlvwqHvoP7eJcaIVqqeDsgQIDAQABAoIBAQD0MpQd704kxAz1\n"
+"FjmL9NTzwqy3ZGfToX4heYHq8h9t+lJhzGiXyISTXSKMgZXbNoGOD8SqE8imyR1P\n"
+"ax+fzTqg7rJvF8lETu/nDfvDYeQsLYZfGEFmz30dZy0jha6tKU/28phapzBpxt21\n"
+"13sRMk3z6NrQGHkbz7WLjRLUnqRLHHkZoNNQb3cqkAEs8i3sf4efgu2LMZqU1xCr\n"
+"ccMBXi9A5SsMsnjED9KmzEcELA58MLCCTDK4iPgdCJ4pK2GX5m3H0BAmnbU7acOS\n"
+"Su28DgxF23nX3BSgy20ASx165WUPAMTwqWLIaJdpAvFr8AI+QKa1zIYf3juXsAyw\n"
+"OfEjWaGxAoGBAP+PwaPEB7q3Ke01ZefllAL4AfBd/MLmoTRoEjFYMMuYquzlNAk9\n"
+"OR2m+JlV6nYcWgkSPONmQik34iL9LPZK29eADDJs/Vz35sKpCyVdRLEobN0UFMFZ\n"
+"18K/FashpDLpUGiRECh62F+Nt5eKTo7iVi5eMptzjaEIBjTk3qYHvHTFAoGBAPeM\n"
+"Msz+zY1ZH6OSGfAvl9D5cFRFSBcm4AIDbdk6dp+vw5dm0f49Z1CUYUKbFdrDPueX\n"
+"bQY6Ljn/2M6/hfUG7iQqCgttvJZ4rb2F3NuLYYZJ4bm8e9Djovs+jRFli3H59EfH\n"
+"h0kUcvdgUcpZz65xWrZgBBTrc+oV3ttRtPAqo+yNAoGBANdCnVZ17hTF51jYm4ej\n"
+"BvMhN3DhmeAJJ0vfRUOvBxrW81IrFZOasBtb4xY1GhJ2exgc9pCMN7pESgQywMaL\n"
+"83UndB6dUyQV45efj7XfQ9b9OAVXvsvGA0kUbwoAgjAn+gS5+6Q9JTgHRNcuNlGA\n"
+"MBtKWNI7mNZEzgWLqkarSYAJAoGALIDR6TSts4mgPIHZk+qaeoE9hojmCvN8NiBz\n"
+"sSfnh5HLsf5UJkbXug7S5WyII0oSlwQMH6B6CwdJ7PFVndVfHrVIFQHnc43Cfl4A\n"
+"dJ+8Kq5BnGicQdOKy2xVZBlDVnw/RGBEnAjHGl4AlkZLJetPCZZ9ZV1m+2BvLjKk\n"
+"OsEPs0kCgYEAqV3tI72mf46fI90CeaqLgLUsmGaJRNEoGZE27lN3U2cDMAwRNOZ8\n"
+"mPh+uUVXRpMBEdaKSf+b6dCgwbVgrBI/L/x0GWRa2iTD6oeNlIf9AzhhrWmuWLw4\n"
+"3coYSmuC6S6ebyL7KOTzgoL4+rMxKT5Zg4loHfcooWsallDSrVIz0sU=\n"
+"-----END RSA PRIVATE KEY-----";
+SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);
 //Classes definition
 TinyGsm modem(SerialAT);
 TinyGsmClient GSMclient(modem);
 SSLClient client(GSMclient, TAs, (size_t)TAs_NUM, PA10);
 PubSubClient mqtt(client);
+
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
                             NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG,
@@ -83,7 +96,8 @@ const char* apn = "internet.beeline.ru";
 const char* gprsUser = "beeline";
 const char* gprsPass = "beeline";
 // MQTT details
-const char* broker = "iotcreative.ru";
+const char* broker = "mqtt.iotcreative.ru";
+int port = 8883;
 const char* mqtt_user = "dave";
 const char* mqtt_pass = "lemontree";
 const char* topicRegister = "/device/register";
@@ -314,8 +328,7 @@ void setup()
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  client.setMutualAuthParams(mTLS);
-  mqtt.setServer(broker, 1883);
+  mqtt.setServer(broker, port);
   mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
   matrix.show();
