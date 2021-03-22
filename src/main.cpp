@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.1"
+#define FW_VERSION      "2.0.3 SSL"
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -29,7 +29,7 @@ const char BUILD[] = __DATE__ " " __TIME__;
 
 //Classes definition
 TinyGsm modem(SerialAT);
-TinyGsmClient client(modem);
+TinyGsmClientSecure client(modem);
 PubSubClient mqtt(client);
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
@@ -43,7 +43,7 @@ const char* apn = "internet.beeline.ru";
 const char* gprsUser = "beeline";
 const char* gprsPass = "beeline";
 // MQTT details
-const char* broker = "iotcreative.ru";
+const char* broker = "mqtt.iotcreative.ru";
 const char* mqtt_user = "dave";
 const char* mqtt_pass = "lemontree";
 const char* topicRegister = "/device/register";
@@ -274,7 +274,7 @@ void setup()
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  mqtt.setServer(broker, 1883);
+  mqtt.setServer(broker, 8883);
   mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
   matrix.show();
