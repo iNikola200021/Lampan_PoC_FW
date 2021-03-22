@@ -26,7 +26,7 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
 #define SerialAT Serial1
-const char my_cert[] = 
+/*const char my_cert[] = 
 "-----BEGIN CERTIFICATE-----\n"
 "MIIDtTCCAp0CFFC34Ac6H4/t3DXcRgfS0CTeF1OHMA0GCSqGSIb3DQEBCwUAMIGI\n"
 "MQswCQYDVQQGEwJSVTEPMA0GA1UECAwGTW9zY293MQ8wDQYDVQQHDAZNb3Njb3cx\n"
@@ -77,11 +77,11 @@ const char my_key[] =
 "mPh+uUVXRpMBEdaKSf+b6dCgwbVgrBI/L/x0GWRa2iTD6oeNlIf9AzhhrWmuWLw4\n"
 "3coYSmuC6S6ebyL7KOTzgoL4+rMxKT5Zg4loHfcooWsallDSrVIz0sU=\n"
 "-----END RSA PRIVATE KEY-----";
-SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);
+SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);*/
 //Classes definition
 TinyGsm modem(SerialAT);
 TinyGsmClient GSMclient(modem);
-SSLClient client(GSMclient, TAs, (size_t)TAs_NUM, PA10);
+SSLClient client(GSMclient, TAs, (size_t)TAs_NUM, PA7, 1, SSLClient::SSL_DUMP);
 PubSubClient mqtt(client);
 
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
@@ -106,7 +106,7 @@ char topicService[40]= "/device/";
 //Light parameters
 const uint32_t brc = 10;
 const byte delays = 30;
-const byte MainBrightness = 100;
+const byte MainBrightness = 40;
 const byte NotiBrightness = 20;
 const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
 const uint32_t NBColour = matrix.Color(0, 255, 0); //Notification Background Colour
@@ -189,7 +189,7 @@ bool mqttConnect()
       {
           SerialMon.print(F(" NOT OK, status: "));
           SerialMon.print(mqtt.state());
-          Serial.println(", try again in 5 seconds");
+          Serial.println(F(", try again in 5 seconds"));
           MqttRT++;
         // Wait 5 seconds before retrying
         delay(5000);
@@ -246,11 +246,11 @@ void setup()
   // Restart takes quite some time
   // To skip it, call init() instead of restart()
   SerialMon.println("INIT");
-  SerialMon.print("Firmware ");
+  SerialMon.print(F("Firmware "));
   SerialMon.print(FW_NAME);  
-  SerialMon.print(", version ");
+  SerialMon.print(F(", version "));
   SerialMon.print(FW_VERSION);
-  SerialMon.print(",build ");  
+  SerialMon.print(F(",build "));  
   SerialMon.println(BUILD);
   matrix.fillRect(0,0,6,16,PBColour);
   matrix.show();
@@ -262,20 +262,21 @@ void setup()
 
   DeviceImei = modem.getIMEI();
   DeviceImei.toCharArray(DeviceID, 16);
-  SerialMon.print("Lamp ID number: ");
+  SerialMon.print(F("Lamp ID number: "));
   SerialMon.println(DeviceID);
   strcat(topicService, DeviceID);
   strcat(topicStatus, DeviceID);
   strcat(topicService, "/GSM/RSSI");
   strcat(topicStatus, "/lamp");
-  SerialMon.print("TopicStatus: ");
+  SerialMon.print(F("TopicStatus: "));
   SerialMon.println(topicStatus);
   SerialMon.println(topicService);
   if(DeviceImei == "")
   {
-    SerialMon.println("Error 1: No modem");
+    SerialMon.println(F("Error 1: No modem"));
     error(1);
   }
+  //client.setMutualAuthParams(mTLS);
   matrix.fillRect(0,0,8,16,PBColour);
   matrix.show();
   if(modem.getSimStatus() != 1)
@@ -283,27 +284,27 @@ void setup()
     //Serial.print("NO SIM");
     error(5);
   }
-  SerialMon.print("NET? ");
+  SerialMon.print(F("NET? "));
   if (!modem.waitForNetwork())
   {
     NetRT++;
-    SerialMon.println("!OK");
+    SerialMon.println(F("!OK"));
     error(2);
   }
   if (modem.isNetworkConnected())
   {
     NetRT = 0;
-    SerialMon.println("OK");
+    SerialMon.println(F("OK"));
 
     matrix.fillRect(0,0,10,16,PBColour);
     matrix.show();
   }
   int csq = modem.getSignalQuality();
   int RSSI = -113 +(csq*2);
-  SerialMon.print("RSSI? ");
+  SerialMon.print(F("RSSI? "));
   SerialMon.println(RSSI);
 
-  SerialMon.print("GPRS?");
+  SerialMon.print(F("GPRS?"));
   if (!modem.gprsConnect(apn, gprsUser, gprsPass))
   {
     GprsRT++;
@@ -324,7 +325,6 @@ void setup()
   }
   ts.addTask(tNotification);
   ts.addTask(tRSSI);
-  
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
