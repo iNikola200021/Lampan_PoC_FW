@@ -26,58 +26,35 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
 #define SerialAT Serial1
-/*const char my_cert[] = 
+const char my_cert[] = 
 "-----BEGIN CERTIFICATE-----\n"
-"MIIDtTCCAp0CFFC34Ac6H4/t3DXcRgfS0CTeF1OHMA0GCSqGSIb3DQEBCwUAMIGI\n"
+"MIIC4jCCAcoCFDJ6mXWSN2sOT8+IluAGFhxe/G1tMA0GCSqGSIb3DQEBCwUAMIGG\n"
 "MQswCQYDVQQGEwJSVTEPMA0GA1UECAwGTW9zY293MQ8wDQYDVQQHDAZNb3Njb3cx\n"
-"FTATBgNVBAoMDElvVCBDcmVhdGl2ZTELMAkGA1UECwwCSFExDTALBgNVBAMMBG1x\n"
-"dHQxJDAiBgkqhkiG9w0BCQEWFWFydGh1cnNtYWluQGdtYWlsLmNvbTAeFw0yMTAz\n"
-"MTcwOTAyNTdaFw0yMjAzMTIwOTAyNTdaMIGkMQswCQYDVQQGEwJSVTEPMA0GA1UE\n"
-"CAwGTW9zY293MQ8wDQYDVQQHDAZNb3Njb3cxHDAaBgNVBAoME0lvVCBDcmVhdGl2\n"
-"ZSBDbGllbnQxDzANBgNVBAsMBkNsaWVudDEUMBIGA1UEAwwLbXF0dC1jbGllbnQx\n"
-"LjAsBgkqhkiG9w0BCQEWH21xdHQtY2xpZW50QG1xdHQuaW90Y3JlYXRpdmUucnUw\n"
-"ggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD3H6kpoHDJhEEaOZLt/Nle\n"
-"pSZxcpENKCZO8J3SO3x14qFy4ZNJE1Xk6bVt488EgwVp9Re0nDenDHrghiUlYQMe\n"
-"mvqKQsiJL4MLtlfVRElH6mkxEi6J9IcyLTFbHaj9bzjVUFWAFk6Y6C5hHTBF0LoJ\n"
-"aUx/iWIcTHzpaTv2N9wE1Vc6CW9CjLPx6MV9BLg2XcZFGAyRpqnwSmsMVV7X5j0U\n"
-"pCacRHn91Da148E2iOP9NsYuCl6ndFDB2M1SPi6t/iM8Hy7jGCRwCNhh+Rmxqovh\n"
-"0/M+t/f/aOO9oxtseqr3EHIhrYbbkJx1H7DcEElEGJOW/Coe+g/t4lxohWqp4OyB\n"
-"AgMBAAEwDQYJKoZIhvcNAQELBQADggEBAGJOJOKUnM5yt888jd9/WejrewZkxZS+\n"
-"qLADJSpURReqySP2SkUrogfYSQ7VuIhAhcF1hADjR1pSmDcRhUVbUEShY7edkvb/\n"
-"2EfmgBm0tKu7+1Jf04e0Q7QZEMvDmgZxmRvq4fU07r0JPObYiJYnOvi8Fj6uEjbx\n"
-"pO9TlBbJoJFl9zWNjL85Gm8IIcvM5LVzyjlthlOv2vd/FpwFldlDHkBS357pKRvQ\n"
-"5BHEnYuZ/XccHntnEeFeRK6T2YwZMsiPDYFe43237fNvayYTkdlm7/iiTvBWC4XL\n"
-"q5JMjoNCjiV5ZLCNYwuGjUku5L/gwvAgGNpTrbLegMDJbsHy/n9jFrY=\n"
+"FTATBgNVBAoMDElvVCBDcmVhdGl2ZTELMAkGA1UECwwCSFExDzANBgNVBAMMBk1R\n"
+"VFRDQTEgMB4GCSqGSIb3DQEJARYRY2FAaW90Y3JlYXRpdmUucnUwHhcNMjEwMzIy\n"
+"MTkzMTI2WhcNMjIwMzE3MTkzMTI2WjCBnjELMAkGA1UEBhMCUlUxDzANBgNVBAgM\n"
+"Bk1vc2NvdzEPMA0GA1UEBwwGTW9zY293MRwwGgYDVQQKDBNJb1QgQ3JlYXRpdmUg\n"
+"Q2xpZW50MQ8wDQYDVQQLDAZDbGllbnQxEzARBgNVBAMMCk1RVFRDbGllbnQxKTAn\n"
+"BgkqhkiG9w0BCQEWGm1xdHQtY2xpZW50QGlvdGNyZWF0aXZlLnJ1MFkwEwYHKoZI\n"
+"zj0CAQYIKoZIzj0DAQcDQgAEZpTILrlML3LS7I+LKczXQpB7di26RlMtsNobU43S\n"
+"ENfv0jgj8aA+BzGZ6Xotdd4ech62mwB/gwWf2dnEdEQ6DTANBgkqhkiG9w0BAQsF\n"
+"AAOCAQEAGbbcBVhHEA5ezMSkAvNKrHPAbb8gdc+yMebkYI/rNW6rNQ4v1h2ePX6R\n"
+"bgyuekzdSHb6s+uH8INhwDCoIp1OZUX/bU+po8Yq1XKiCZos0vjGyd4e3310rfk/\n"
+"64mOhJ/3gohS3vc0G02DNCIrT+ezG2VZy31boNotchyqWSFfI1kVvkBg1AHwzua6\n"
+"OYAPIWyG/0xhwOY8gM/2hhsRuKcuG47t2zsIfEewzXkJT2Dco7sUvTFKn9PHL9fm\n"
+"OThyBtPtCpGKeolHCh/mH8uUwKZn6p8EDPGHT8SJDQwZVl5GKKgnAy/g/OxHWrXv\n"
+"r/JMb/6nR31b9QVYg+lA7YzCPY4RJA==\n"
 "-----END CERTIFICATE-----";
 const char my_key[] = 
-"-----BEGIN RSA PRIVATE KEY-----\n"
-"MIIEpQIBAAKCAQEA9x+pKaBwyYRBGjmS7fzZXqUmcXKRDSgmTvCd0jt8deKhcuGT\n"
-"SRNV5Om1bePPBIMFafUXtJw3pwx64IYlJWEDHpr6ikLIiS+DC7ZX1URJR+ppMRIu\n"
-"ifSHMi0xWx2o/W841VBVgBZOmOguYR0wRdC6CWlMf4liHEx86Wk79jfcBNVXOglv\n"
-"Qoyz8ejFfQS4Nl3GRRgMkaap8EprDFVe1+Y9FKQmnER5/dQ2tePBNojj/TbGLgpe\n"
-"p3RQwdjNUj4urf4jPB8u4xgkcAjYYfkZsaqL4dPzPrf3/2jjvaMbbHqq9xByIa2G\n"
-"25CcdR+w3BBJRBiTlvwqHvoP7eJcaIVqqeDsgQIDAQABAoIBAQD0MpQd704kxAz1\n"
-"FjmL9NTzwqy3ZGfToX4heYHq8h9t+lJhzGiXyISTXSKMgZXbNoGOD8SqE8imyR1P\n"
-"ax+fzTqg7rJvF8lETu/nDfvDYeQsLYZfGEFmz30dZy0jha6tKU/28phapzBpxt21\n"
-"13sRMk3z6NrQGHkbz7WLjRLUnqRLHHkZoNNQb3cqkAEs8i3sf4efgu2LMZqU1xCr\n"
-"ccMBXi9A5SsMsnjED9KmzEcELA58MLCCTDK4iPgdCJ4pK2GX5m3H0BAmnbU7acOS\n"
-"Su28DgxF23nX3BSgy20ASx165WUPAMTwqWLIaJdpAvFr8AI+QKa1zIYf3juXsAyw\n"
-"OfEjWaGxAoGBAP+PwaPEB7q3Ke01ZefllAL4AfBd/MLmoTRoEjFYMMuYquzlNAk9\n"
-"OR2m+JlV6nYcWgkSPONmQik34iL9LPZK29eADDJs/Vz35sKpCyVdRLEobN0UFMFZ\n"
-"18K/FashpDLpUGiRECh62F+Nt5eKTo7iVi5eMptzjaEIBjTk3qYHvHTFAoGBAPeM\n"
-"Msz+zY1ZH6OSGfAvl9D5cFRFSBcm4AIDbdk6dp+vw5dm0f49Z1CUYUKbFdrDPueX\n"
-"bQY6Ljn/2M6/hfUG7iQqCgttvJZ4rb2F3NuLYYZJ4bm8e9Djovs+jRFli3H59EfH\n"
-"h0kUcvdgUcpZz65xWrZgBBTrc+oV3ttRtPAqo+yNAoGBANdCnVZ17hTF51jYm4ej\n"
-"BvMhN3DhmeAJJ0vfRUOvBxrW81IrFZOasBtb4xY1GhJ2exgc9pCMN7pESgQywMaL\n"
-"83UndB6dUyQV45efj7XfQ9b9OAVXvsvGA0kUbwoAgjAn+gS5+6Q9JTgHRNcuNlGA\n"
-"MBtKWNI7mNZEzgWLqkarSYAJAoGALIDR6TSts4mgPIHZk+qaeoE9hojmCvN8NiBz\n"
-"sSfnh5HLsf5UJkbXug7S5WyII0oSlwQMH6B6CwdJ7PFVndVfHrVIFQHnc43Cfl4A\n"
-"dJ+8Kq5BnGicQdOKy2xVZBlDVnw/RGBEnAjHGl4AlkZLJetPCZZ9ZV1m+2BvLjKk\n"
-"OsEPs0kCgYEAqV3tI72mf46fI90CeaqLgLUsmGaJRNEoGZE27lN3U2cDMAwRNOZ8\n"
-"mPh+uUVXRpMBEdaKSf+b6dCgwbVgrBI/L/x0GWRa2iTD6oeNlIf9AzhhrWmuWLw4\n"
-"3coYSmuC6S6ebyL7KOTzgoL4+rMxKT5Zg4loHfcooWsallDSrVIz0sU=\n"
-"-----END RSA PRIVATE KEY-----";
-SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);*/
+"-----BEGIN EC PARAMETERS-----\n"
+"BggqhkjOPQMBBw==\n"
+"-----END EC PARAMETERS-----\n"
+"-----BEGIN EC PRIVATE KEY-----\n"
+"MHcCAQEEIJBEL4ZvLAUY3Mxqcx8RXNT0G84ZvyOb6lsAUiHuHHupoAoGCCqGSM49\n"
+"AwEHoUQDQgAEZpTILrlML3LS7I+LKczXQpB7di26RlMtsNobU43SENfv0jgj8aA+\n"
+"BzGZ6Xotdd4ech62mwB/gwWf2dnEdEQ6DQ==\n"
+"-----END EC PRIVATE KEY-----\n";
+SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);
 //Classes definition
 TinyGsm modem(SerialAT);
 TinyGsmClient GSMclient(modem);
@@ -276,7 +253,7 @@ void setup()
     SerialMon.println(F("Error 1: No modem"));
     error(1);
   }
-  //client.setMutualAuthParams(mTLS);
+ 
   matrix.fillRect(0,0,8,16,PBColour);
   matrix.show();
   if(modem.getSimStatus() != 1)
@@ -326,6 +303,7 @@ void setup()
   ts.addTask(tNotification);
   ts.addTask(tRSSI);
   tRSSI.enable();
+  client.setMutualAuthParams(mTLS);
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
   mqtt.setServer(broker, port);
