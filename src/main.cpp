@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.1.0 alpha"
+#define FW_VERSION      "2.1.0 BearSSL"
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -26,7 +26,7 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
 #define SerialAT Serial1
-const char my_cert[] = 
+/*const char my_cert[] = 
 "-----BEGIN CERTIFICATE-----\n"
 "MIIC4jCCAcoCFDJ6mXWSN2sOT8+IluAGFhxe/G1tMA0GCSqGSIb3DQEBCwUAMIGG\n"
 "MQswCQYDVQQGEwJSVTEPMA0GA1UECAwGTW9zY293MQ8wDQYDVQQHDAZNb3Njb3cx\n"
@@ -54,11 +54,11 @@ const char my_key[] =
 "AwEHoUQDQgAEZpTILrlML3LS7I+LKczXQpB7di26RlMtsNobU43SENfv0jgj8aA+\n"
 "BzGZ6Xotdd4ech62mwB/gwWf2dnEdEQ6DQ==\n"
 "-----END EC PRIVATE KEY-----\n";
-SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);
+SSLClientParameters mTLS = SSLClientParameters::fromPEM(my_cert, sizeof my_cert, my_key, sizeof my_key);*/
 //Classes definition
 TinyGsm modem(SerialAT);
 TinyGsmClient GSMclient(modem);
-SSLClient client(GSMclient, TAs, (size_t)TAs_NUM, PA7, 1, SSLClient::SSL_DUMP);
+SSLClient client(GSMclient, TAs, (size_t)TAs_NUM, PA8);
 PubSubClient mqtt(client);
 
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
@@ -303,7 +303,7 @@ void setup()
   ts.addTask(tNotification);
   ts.addTask(tRSSI);
   tRSSI.enable();
-  client.setMutualAuthParams(mTLS);
+  //client.setMutualAuthParams(mTLS);
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
   mqtt.setServer(broker, port);
