@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.3 SSL"
+#define FW_VERSION      "2.0.3 "
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -39,9 +39,9 @@ Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
 Scheduler ts;
 
 //APN Credentials
-const char* apn = "internet.beeline.ru";
-const char* gprsUser = "beeline";
-const char* gprsPass = "beeline";
+const char* apn = "mts";
+const char* gprsUser = "mts";
+const char* gprsPass = "mts";
 // MQTT details
 const char* broker = "mqtt.iotcreative.ru";
 const char* mqtt_user = "dave";
@@ -274,7 +274,7 @@ void setup()
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  mqtt.setServer(broker, 8883);
+  mqtt.setServer(broker, 1884);
   mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
   matrix.show();
