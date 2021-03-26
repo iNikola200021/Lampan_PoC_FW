@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.0.3 "
+#define FW_VERSION      "2.2.0 alpha JSON "
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -52,12 +52,14 @@ char topicService[40]= "/device/";
 //Light parameters
 const byte brc = 10;
 const byte delays = 30;
-const byte MainBrightness = 40;
-const byte NotiBrightness = 20;
+byte MainBrightness = 40;
+byte NotiBrightness = 20;
 const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
-const uint32_t NBColour = matrix.Color(0, 255, 0); //Notification Background Colour
-const uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
-const uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour
+uint32_t NBColour = matrix.Color(0, 255, 0); //Notification Background Colour
+uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
+uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour
+bool LampMode = false;
+bool TestMode = false;
 //Technical variables
 bool NotiOn = false;
 uint32_t lastReconnectAttempt = 0;
@@ -65,6 +67,8 @@ bool IsSetupComplete = false;
 String DeviceImei = "";
 char DeviceID[16];
 uint32_t ServTime = 10;
+const int port = 8883;
+
 //uint32_t ServTimer;
 //Error variables
 byte NetRT = 0;
@@ -172,6 +176,11 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
     SerialMon.println(F("LED OFF"));
     tNotification.disable();
   }
+  else
+  {
+    SerialMon.print(F("Unknown message, JSON? "));
+    ConfigApply(payload, len);
+  }
 }
 
 
@@ -274,7 +283,7 @@ void setup()
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  mqtt.setServer(broker, 1884);
+  mqtt.setServer(broker, port);
   mqtt.setCallback(mqttRX);
   matrix.fillRect(0,0,14,16,PBColour);
   matrix.show();
@@ -472,4 +481,52 @@ void SignalTest ()
     {
         matrix.fillScreen(matrix.Color(0,0,255));
     }
+}
+void ConfigApply(byte *payload, unsigned int len)
+{
+    StaticJsonDocument<100> config;
+    char payld[len];
+    for(unsigned int i=0; i < len; i++)
+    {
+       payld[i] = (char)payload[i];
+    }
+    DeserializationError error = deserializeJson(config, payld);
+    if (error)
+    {
+       SerialMon.println(F("Not JSON or deserialize error"));
+       return;
+    }
+    if (config["mode"] = "lamp")
+    {
+        SerialMon.println(F("Config: Lamp mode"));
+       LampMode = true;
+       TestMode = false;
+       tRSSI.disable();
+    }
+    if (config["mode"] = "test")
+    {
+      SerialMon.println(F("Config: Test mode"));
+      TestMode = true;
+      LampMode = false;
+      tNotification.disable();
+      tRSSI.enable();
+    }
+    if (config["mode"] = "noti")
+    {
+      SerialMon.println(F("Config: Noti only mode"));
+      LampMode = false;
+      TestMode = false;
+      tRSSI.disable();
+      uint32_t colour = config["NotiColour"];
+      NBColour = ToColour(colour);
+      colour = config["NotiStrip"];
+      NSColour = ToColour(colour);
+    }
+}
+uint32_t ToColour(uint32_t colour)
+{
+    int r = colour / 1000000;
+    int g = (colour % 1000000)/1000;
+    int b = colour % 1000;
+    return matrix.Color(r,g,b);
 }
