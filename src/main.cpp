@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.2.0 alpha 2 JSON "
+#define FW_VERSION      "2.2.0 JSON "
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -50,6 +50,7 @@ const char* mqtt_pass = "lemontree";
 const char* topicRegister = "/device/register";
 char topicStatus[29] = "/device/";
 char topicService[40]= "/device/";
+char topicJSON[40]= "$device/";
 //Light parameters
 float brc = 10;
 const byte delays = 30;
@@ -70,7 +71,6 @@ String DeviceImei = "";
 char DeviceID[16];
 uint32_t ServTime = 10;
 const int port = 1884;
-
 //uint32_t ServTimer;
 //Error variables
 byte NetRT = 0;
@@ -106,9 +106,9 @@ void SignalTestDis();
 void ConfigApply(byte* payload, unsigned int len);
 uint32_t ToColour(uint32_t colour);
 //TASKS
-//Task 1 - MQTT
-//Task 2 - Notification
-//Task 3 - Publish RSSI
+//Task 1 - Notification
+//Task 2 - Publish RSSI
+//Task 3 - Signal Test
 //Task tMQTT(TASK_IMMEDIATE, TASK_FOREVER);
 Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tRSSI(ServTime*TASK_SECOND, TASK_FOREVER, &PublishRSSI, &ts);
@@ -128,6 +128,7 @@ bool mqttConnect()
       itoa(RSSI, serrssi, 10);
       mqtt.publish(topicService, serrssi);
       mqtt.subscribe(topicStatus,1);
+      mqtt.subscribe(topicJSON,1);
       if (!IsSetupComplete) //Add Boot is Complete Animation
       {
         IsSetupComplete = true;
@@ -170,12 +171,11 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
   SerialMon.print(F("]: "));
   SerialMon.write(payload, len);
   SerialMon.println();
-  //DynamicJsonDocument payld(100);
-  //deserializeJson(payld,payload);
   if (!strncmp((char *)payload, "on", len))
   {
     SerialMon.println(F("LED ON"));
-    if(!tNotification.isEnabled() && !tSignalTest.isEnabled())
+    NotiOn = true;
+    if(!NotiOn && !tSignalTest.isEnabled())
     {
         tNotification.enable();
     }
@@ -183,7 +183,8 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
   else if (!strncmp((char *)payload, "off", len))
   {
     SerialMon.println(F("LED OFF"));
-      tNotification.disable();
+    NotiOn = false;
+    tNotification.disable();
   }
   else
   {
@@ -195,9 +196,9 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
 
 void setup()
 {
+  //Initialization
   delay(2000);
   SerialMon.begin();
-  
   SerialMon.println(F("BOOT"));
   matrix.begin();
   matrix.setBrightness(MainBrightness);
@@ -206,9 +207,7 @@ void setup()
   SerialAT.begin(115200);
   matrix.fillRect(0,0,4,16,PBColour);
   matrix.show();
-  delay(6000);
-  // Restart takes quite some time
-  // To skip it, call init() instead of restart()
+  delay(4000);
   SerialMon.println("INIT");
   SerialMon.print("Firmware ");
   SerialMon.print(FW_NAME);  
@@ -220,26 +219,27 @@ void setup()
   matrix.show();
   //modem.restart();
   modem.init();
+  //Init complete. Getting the IMEI
   String modemInfo = modem.getModemInfo();
   SerialMon.print(F("Modem Info: "));
   SerialMon.println(modemInfo);
-
   DeviceImei = modem.getIMEI();
-  DeviceImei.toCharArray(DeviceID, 16);
-  SerialMon.print("Lamp ID number: ");
-  SerialMon.println(DeviceID);
-  strcat(topicService, DeviceID);
-  strcat(topicStatus, DeviceID);
-  strcat(topicService, "/GSM/RSSI");
-  strcat(topicStatus, "/lamp");
-  SerialMon.print("TopicStatus: ");
-  SerialMon.println(topicStatus);
-  SerialMon.println(topicService);
   if(DeviceImei == "")
   {
     SerialMon.println("Error 1: No modem");
     error(1);
   }
+  DeviceImei.toCharArray(DeviceID, 16);
+  SerialMon.print("Lamp ID number: ");
+  SerialMon.println(DeviceID);
+  //Topics forming
+    strcat(topicService, DeviceID);
+    strcat(topicStatus, DeviceID);
+    strcat(topicJSON, DeviceID);
+    strcat(topicService, "/GSM/RSSI");
+    strcat(topicStatus, "/lamp");
+    strcat(topicJSON, "/+");
+
   matrix.fillRect(0,0,8,16,PBColour);
   matrix.show();
   if(modem.getSimStatus() != 1)
@@ -250,7 +250,6 @@ void setup()
   SerialMon.print("NET? ");
   if (!modem.waitForNetwork())
   {
-    NetRT++;
     SerialMon.println("!OK");
     error(2);
   }
@@ -264,9 +263,8 @@ void setup()
   }
   int csq = modem.getSignalQuality();
   int RSSI = -113 +(csq*2);
-  SerialMon.print("RSSI? ");
+  SerialMon.print("RSSI: ");
   SerialMon.println(RSSI);
-
   SerialMon.print("GPRS?");
   if (!modem.gprsConnect(apn, gprsUser, gprsPass))
   {
@@ -288,7 +286,6 @@ void setup()
   }
   ts.addTask(tNotification);
   ts.addTask(tRSSI);
-  
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
@@ -302,28 +299,13 @@ void setup()
 
 void loop()
 {
-    ts.execute();
+  ts.execute();
+
   if (!mqtt.connected())
   {
-    SerialMon.println(F("=== MQTT DISCONNECT ==="));
-    // Reconnect every 10 seconds
-    uint32_t t = millis();
-    if (t - lastReconnectAttempt > 10000L)
-    {
-      
-      lastReconnectAttempt = t;
-      if (mqttConnect())
-      {
-        lastReconnectAttempt = 0;
-        MqttRT = 0;
-      }
-      
-    }
-    
-    return;
-
+      mqttConnect();
   }
-  
+
   mqtt.loop();
 }
 bool NotiOnEnable()
@@ -497,14 +479,14 @@ void ConfigApply(byte *payload, unsigned int len)
        SerialMon.println(F("Not JSON or deserialize error"));
        return;
     }
-    if (config["mode"] = "lamp")
+    if (config["mode"] == "lamp")
     {
-        SerialMon.println(F("Config: Lamp mode"));
+      SerialMon.println(F("Config: Lamp mode"));
        LampMode = true;
        TestMode = false;
        tSignalTest.disable();
     }
-    if (config["mode"] = "test")
+    else if (config["mode"] == "test")
     {
       SerialMon.println(F("Config: Test mode"));
       TestMode = true;
@@ -512,21 +494,28 @@ void ConfigApply(byte *payload, unsigned int len)
       tNotification.disable();
       tSignalTest.enable();
     }
-    if (config["mode"] = "noti")
+    else if (config["mode"] == "noti")
     {
       SerialMon.println(F("Config: Noti only mode"));
       LampMode = false;
       TestMode = false;
-     // tRSSI.disable();
+      tSignalTest.disable();
+      if(NotiOn)
+      {
+          tNotification.enable();
+      }
       uint32_t colour = config["NotiColour"];
       NBColour = ToColour(colour);
       colour = config["NotiStrip"];
       NSColour = ToColour(colour);
+      colour = config["NotiSG"];
+      NSGColour = ToColour(colour);
+      
       if (config["pattern"] = "wave")
       {
           mode = 1;
       }
-      if (config["pattern"] = "snow")
+      else if (config["pattern"] = "snow")
       {
           mode = 2;
       }
