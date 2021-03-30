@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "2.2.0 alpha JSON "
+#define FW_VERSION      "2.2.0 alpha 2 JSON "
 
 #define TINY_GSM_MODEM_SIM800
 #define _TASK_STATUS_REQUEST
@@ -26,10 +26,11 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
 #define SerialAT Serial1
+#define TINY_GSM_SSL_CLIENT_AUTHENTICATION
 
 //Classes definition
 TinyGsm modem(SerialAT);
-TinyGsmClientSecure client(modem);
+TinyGsmClient client(modem);
 PubSubClient mqtt(client);
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_MATRIX_BOTTOM     + NEO_MATRIX_LEFT +
@@ -50,8 +51,9 @@ const char* topicRegister = "/device/register";
 char topicStatus[29] = "/device/";
 char topicService[40]= "/device/";
 //Light parameters
-const byte brc = 10;
+float brc = 10;
 const byte delays = 30;
+const byte MaxNotiBr = 100;
 byte MainBrightness = 40;
 byte NotiBrightness = 20;
 const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
@@ -67,7 +69,7 @@ bool IsSetupComplete = false;
 String DeviceImei = "";
 char DeviceID[16];
 uint32_t ServTime = 10;
-const int port = 8883;
+const int port = 1884;
 
 //uint32_t ServTimer;
 //Error variables
@@ -91,11 +93,18 @@ void FadeOut(uint32_t fadecolour, int brightness);
 bool NotiOnEnable(); 
 void NotiCallback();
 void NotiOnDisable();
-
+//Animation 
+byte mode = 1; //1 - wave, 2 - ...
+void wave();
+void snow();
 //Service functions
 void error(int errcode);
 void PublishRSSI();
 void SignalTest();
+bool SignalTestEn();
+void SignalTestDis();
+void ConfigApply(byte* payload, unsigned int len);
+uint32_t ToColour(uint32_t colour);
 //TASKS
 //Task 1 - MQTT
 //Task 2 - Notification
@@ -103,7 +112,7 @@ void SignalTest();
 //Task tMQTT(TASK_IMMEDIATE, TASK_FOREVER);
 Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tRSSI(ServTime*TASK_SECOND, TASK_FOREVER, &PublishRSSI, &ts);
-Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts);
+Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts, false, &SignalTestEn, &SignalTestDis);
 bool mqttConnect()
 {
   while (!mqtt.connected())
@@ -166,15 +175,15 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
   if (!strncmp((char *)payload, "on", len))
   {
     SerialMon.println(F("LED ON"));
-    if(!tNotification.isEnabled())
+    if(!tNotification.isEnabled() && !tSignalTest.isEnabled())
     {
-    tNotification.enable();
+        tNotification.enable();
     }
   }
   else if (!strncmp((char *)payload, "off", len))
   {
     SerialMon.println(F("LED OFF"));
-    tNotification.disable();
+      tNotification.disable();
   }
   else
   {
@@ -329,33 +338,20 @@ void NotiOnDisable()
 }
 void NotiCallback()
 {
-  
-  for (byte i = 0; i <= 17; i++)
-  {
-    matrix.fillScreen(NBColour);
-    matrix.drawLine(i, 0, i, 16, NSColour);
-    matrix.drawLine(i + 1, 0, i + 1, 16, NSGColour);
-    matrix.drawLine(i - 1, 0, i - 1, 16, NSGColour);
-    matrix.show();
-    if (i <= 8)
+    switch (mode)
     {
-      //delay(delays-(i*delayk));
-      delay(delays);
-      matrix.setBrightness(NotiBrightness + (i * brc));
+        case 1:
+        wave();
+        break;
+        case 2:
+        snow();
+        break;
     }
-    else
-    {
-      // delay(delays-(8*delayk)+(i*delayk));
-      matrix.setBrightness(100 - (i - 8)*brc);
-      delay(delays);
-    }
-    yield();
-  }
-  
 }
 void error(int errcode)
 {
     Serial.println("ERROR " + errcode);
+    delay(500);
     while(1)
     {
       matrix.fillScreen(matrix.Color(255,0,0));
@@ -464,22 +460,27 @@ void SignalTest ()
     if (RSSI <=  -110)
     {
         matrix.fillScreen(matrix.Color(139,0,0));
+        matrix.show();
     }
     else if (RSSI >  -110 && RSSI < -100)
     {
         matrix.fillScreen(matrix.Color(220,20,60));
+        matrix.show();
     }
     else if (RSSI >=  -100 && RSSI < -85)
     {
         matrix.fillScreen(matrix.Color(255,165,0));
+        matrix.show();
     }
     else if (RSSI >=  -85 && RSSI < -70)
     {
         matrix.fillScreen(matrix.Color(255,255,0));
+        matrix.show();
     }
     else if (RSSI >=  -70)
     {
-        matrix.fillScreen(matrix.Color(0,0,255));
+        matrix.fillScreen(matrix.Color(0,255,0));
+        matrix.show();
     }
 }
 void ConfigApply(byte *payload, unsigned int len)
@@ -501,7 +502,7 @@ void ConfigApply(byte *payload, unsigned int len)
         SerialMon.println(F("Config: Lamp mode"));
        LampMode = true;
        TestMode = false;
-       tRSSI.disable();
+       tSignalTest.disable();
     }
     if (config["mode"] = "test")
     {
@@ -509,18 +510,26 @@ void ConfigApply(byte *payload, unsigned int len)
       TestMode = true;
       LampMode = false;
       tNotification.disable();
-      tRSSI.enable();
+      tSignalTest.enable();
     }
     if (config["mode"] = "noti")
     {
       SerialMon.println(F("Config: Noti only mode"));
       LampMode = false;
       TestMode = false;
-      tRSSI.disable();
+     // tRSSI.disable();
       uint32_t colour = config["NotiColour"];
       NBColour = ToColour(colour);
       colour = config["NotiStrip"];
       NSColour = ToColour(colour);
+      if (config["pattern"] = "wave")
+      {
+          mode = 1;
+      }
+      if (config["pattern"] = "snow")
+      {
+          mode = 2;
+      }
     }
 }
 uint32_t ToColour(uint32_t colour)
@@ -529,4 +538,61 @@ uint32_t ToColour(uint32_t colour)
     int g = (colour % 1000000)/1000;
     int b = colour % 1000;
     return matrix.Color(r,g,b);
+}
+bool SignalTestEn()
+{
+  for(int i = 0; i<3; i++)
+  {
+    matrix.setBrightness(MainBrightness);
+    matrix.fillScreen(matrix.Color(255,165,0));
+    matrix.show();
+    delay(500);
+    matrix.fillScreen(matrix.Color(0,0,0));
+    matrix.show();
+    delay(500);
+  }
+  SerialMon.println(F("SignalTest has been started"));
+  return true;
+}
+void SignalTestDis()
+{
+  for(int i = 0; i<5; i++)
+  {
+    matrix.setBrightness(MainBrightness);
+    matrix.fillScreen(matrix.Color(255,165,0));
+    matrix.show();
+    delay(500);
+    matrix.fillScreen(matrix.Color(0,0,0));
+    matrix.show();
+    delay(500);
+  }
+  SerialMon.println(F("SignalTest has been disabled"));
+}
+void wave()
+{
+  brc = (MaxNotiBr - NotiBrightness) / 8;
+  for (byte i = 0; i <= 17; i++)
+  {
+    matrix.fillScreen(NBColour);
+    matrix.drawLine(i, 0, i, 16, NSColour);
+    matrix.drawLine(i + 1, 0, i + 1, 16, NSGColour);
+    matrix.drawLine(i - 1, 0, i - 1, 16, NSGColour);
+    matrix.show();
+    if (i <= 8)
+    {
+      //delay(delays-(i*delayk));
+      delay(delays);
+      matrix.setBrightness(NotiBrightness + (i * brc));
+    }
+    else
+    {
+      // delay(delays-(8*delayk)+(i*delayk));
+      matrix.setBrightness(MaxNotiBr - (i - 8)*brc);
+      delay(delays);
+    }
+  }
+}
+void snow()
+{
+
 }
