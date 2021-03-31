@@ -12,7 +12,7 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <TaskScheduler.h>
-#define MATRIX_PIN 17
+#define MATRIX_PIN 11
 
 
 #define GSM_AUTOBAUD_MIN 9600
@@ -41,14 +41,15 @@ FastLED_NeoMatrix *matrix = new FastLED_NeoMatrix(leds, mw, mh,
 Scheduler ts;
 
 //APN Credentials
-const char* apn = "internet.beeline.ru";
-const char* gprsUser = "beeline";
-const char* gprsPass = "beeline";
+const char* apn = "mts";
+const char* gprsUser = "mts";
+const char* gprsPass = "mts";
 // MQTT details
-const char* broker = "iotcreative.ru";
+const char* broker = "mqtt.iotcreative.ru";
 const char* mqtt_user = "dave";
 const char* mqtt_pass = "lemontree";
 const char* topicRegister = "/device/register";
+int port = 1884;
 char topicStatus[29] = "/device/";
 char topicService[40]= "/device/";
 //Light parameters
@@ -184,7 +185,6 @@ void setup()
   
   SerialMon.println(F("BOOT"));
   FastLED.addLeds<NEOPIXEL,MATRIX_PIN>(leds, NUMMATRIX);
-  FastLED.setMaxPowerInVoltsAndMilliamps(5,3000);
   matrix->begin();
   matrix->setBrightness(MainBrightness);
   matrix->fillRect(0,0,2,16,PBColour);
@@ -278,7 +278,7 @@ void setup()
   tRSSI.enable();
   // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  mqtt.setServer(broker, 1883);
+  mqtt.setServer(broker, port);
   mqtt.setCallback(mqttRX);
   matrix->fillRect(0,0,14,16,PBColour);
   matrix->show();
