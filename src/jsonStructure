@@ -1,0 +1,8 @@
+{
+    "mode": "lamp",
+    "LampColour": 123123123, #rgb ONLY LAMP mode
+    "brightness": 100,
+    "pattern": "wave"
+    "NotiColour": 123123123, #rgb
+    "NotiStrip": 123123123 #rgb
+}
