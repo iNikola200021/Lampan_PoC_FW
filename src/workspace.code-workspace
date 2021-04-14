@@ -2,7 +2,24 @@
 	"folders": [
 		{
 			"path": ".."
+		},
+		{
+			"name": "STM32_MBED",
+			"path": "../../../../Lampan/STM32_MBED"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"files.associations": {
+			"*.tcc": "cpp",
+			"optional": "cpp",
+			"functional": "cpp",
+			"random": "cpp",
+			"fstream": "cpp",
+			"istream": "cpp",
+			"ostream": "cpp",
+			"sstream": "cpp",
+			"streambuf": "cpp",
+			"*.tpp": "cpp"
+		}
+	}
 }
