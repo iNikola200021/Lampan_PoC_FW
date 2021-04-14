@@ -58,11 +58,11 @@ char topicCmd[32]= "$device/";
 //Pulse anim
 const byte PulsePeak = 100;
 const byte PulseDelay = 10;
-const byte PulseMin = 20;
+const byte PulseMin = 0;
 //Light parameters
 byte MainBrightness = 40;
 byte NotiBrightness = 20;
-float WaveDelay = 0;
+float WaveDelay = 2000;
 const uint32_t PBColour = matrix->Color(255,255,255); //Progress Bar Colour
 uint32_t NSColour = matrix->Color(255, 255, 255); //Notification Strip Colour
 uint32_t NSGColour = matrix->Color(180, 255, 180); //Notification Gradient Colour 
@@ -114,7 +114,7 @@ void button();
 //Task 1 - Notification
 //Task 2 - Publish State
 //Task 3 - Signal Test
-Task tNotification(WaveDelay*TASK_SECOND, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
+Task tNotification(WaveDelay*TASK_MILLISECOND, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tState(StateFreq*TASK_SECOND, TASK_FOREVER, &PublishState, &ts);
 Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts, false, &SignalTestEn, &SignalTestDis);
 
@@ -293,12 +293,25 @@ void NotiOnDisable()
 }
 void NotiCallback()
 {
-  switch (pattern)
+  for (byte i = 0; i <= PulsePeak; i++)
+  {
+    if (i < (PulsePeak/2))
     {
-        case 0: Light(); break; 
-        case 1: wave(); break;
-        case 2: pulse(); break;
+      FastLED.setBrightness(i);
+      delay(PulseDelay);
+      
     }
+    else if (i == (PulsePeak/2))
+    {
+      FastLED.setBrightness(i);
+      delay(WaveDelay);
+    }
+    else
+    {
+      FastLED.setBrightness(PulsePeak - i);
+      delay(PulseDelay);
+    }
+  }
 }
 //Signal Test Task
 void SignalTest ()
