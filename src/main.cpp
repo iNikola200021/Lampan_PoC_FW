@@ -1,22 +1,21 @@
 const char BUILD[] = __DATE__ " " __TIME__;
-#define FW_NAME         "Lampan-EVT2"
-#define FW_VERSION      "3.0.0"
-
+#define FW_NAME         "Lampan DVT4"
+#define FW_VERSION      "v2.2.1 alpha 1"
 #define TINY_GSM_MODEM_SIM800
+#define ARDUINOJSON_USE_LONG_LONG 1
+
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_NeoMatrix.h>
 #include <TinyGsmClient.h>
-#include <ArduinoJson.h>
-#include <TaskScheduler.h>
 #include <IPStack.h>
 #include <Countdown.h>
 #include <MQTTClient.h>
-
+#include <ArduinoJson.h>
+#include <TaskScheduler.h>
+#include <Adafruit_GFX.h>
 #define MATRIX_PIN PA7
-#define TINY_GSM_USE_GPRS true
-#define TINY_GSM_USE_WIFI false
 #define SerialMon Serial
 #define SerialAT Serial1
 
@@ -33,33 +32,43 @@ Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
 Scheduler ts;
 
 //APN Credentials
-const char* apn = "internet.beeline.ru";
-const char* gprsUser = "beeline";
-const char* gprsPass = "beeline";
+const char* apn = "mts";
+const char* gprsUser = "mts";
+const char* gprsPass = "mts";
 // MQTT details
-char broker[] = "iotcreative.ru";
-int port = 1883;
+char* broker = "mqtt.iotcreative.ru";
 char* mqtt_user = "dave";
 char* mqtt_pass = "lemontree";
-const char* topicRegister = "/device/register";
-char topicStatus[29] = "/device/";
-char topicService[40]= "/device/";
+int port = 1884;
+char topicState[33]= "$device/";
+char topicCmd[32]= "$device/";
+char topicEvent[45]= "$device/";
+int LDC = 0;
+//Pulse anim
+const byte PulseDelay = 20;
+//Mixed anim
+bool ColCh = true;
+uint32_t MixedColour = matrix.Color(255, 165, 0); //Mixed Notification Colour
 //Light parameters
-const byte brc = 10;
-const byte delays = 30;
-const byte MainBrightness = 40;
-const byte NotiBrightness = 20;
 const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
-const uint32_t NBColour = matrix.Color(0, 255, 0); //Notification Background Colour
-const uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
-const uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour
+const byte MainBrightness = 40;
+byte NotiBrightness = 100;
+//Wave anim
+float WaveDelay = 2000;
+const byte MinBrightness = 20;
+uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
+uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour 
+ //Main Background Colour
+uint16_t NotiColour = matrix.Color(0, 255, 0);
+uint64_t sendR = 0;
+uint32_t sendG = 0;
+int sendB = 0;
+bool TestMode = false;
 //Technical variables
 bool NotiOn = false;
-uint32_t lastReconnectAttempt = 0;
 bool IsSetupComplete = false;
-String DeviceImei = "";
 char DeviceID[16];
-uint32_t ServTime = 10;
+uint32_t StateFreq = 1; //Minutes
 //Error variables
 byte NetRT = 0;
 byte GprsRT = 0;
@@ -68,104 +77,176 @@ byte MqttRT = 0;
 const byte NetThreshold = 1;
 const byte GprsThreshold = 10;
 const byte MqttThreshold = 5;
-
+uint32_t lastReconnectAttempt = 0;
 //FUNCTIONS DECLARATION
 //MQTT Functions
 void messageArrived(MQTT::MessageData& md);
 void connect();
 //Light Functions
-void LampAct(uint32_t Colour, byte Brightness);
 void Fadein(uint32_t fadecolor, int brightness);
 void FadeOut(uint32_t fadecolour, int brightness);
 //Notification Functions
 bool NotiOnEnable(); 
 void NotiCallback();
 void NotiOnDisable();
-
+//Animation: 0 - pulse; 1 - mixed
+byte pattern = 0;
+void Light(); 
+void wave();
+void pulse();
+void mixed();
 //Service functions
+void ProgressBar (int pb);
 void error(int errcode);
-void PublishRSSI();
+void PublishState();
 void SignalTest();
+bool SignalTestEn();
+void SignalTestDis();
+void JSONApply(char* payload);
+void button();
 //TASKS
 //Task 1 - Notification
-//Task 2 - Publish RSSI
+//Task 2 - Publish State
 //Task 3 - Signal Test
-Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
-Task tRSSI(ServTime*TASK_SECOND, TASK_FOREVER, &PublishRSSI, &ts);
-Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts);
+Task tNotification(WaveDelay*TASK_MILLISECOND, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
+Task tState(StateFreq*TASK_MINUTE, TASK_FOREVER, &PublishState, &ts);
+Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts, false, &SignalTestEn, &SignalTestDis);
 
+void connect()
+{
+  char output[48];
+  StaticJsonDocument<48> event;
+  event["event"] = "disconnect";
+  serializeJson(event, output);
+  SerialMon.print("Connecting to ");
+  SerialMon.print(broker);
+  SerialMon.print(":");
+  SerialMon.println(port);
+ 
+  int rc = ipstack.connect(broker, port);
+  if (rc != 1)
+  {
+    SerialMon.print("rc from TCP connect is ");
+    SerialMon.println(rc);
+  }
+  SerialMon.println("MQTT connecting");
+  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;       
+  data.MQTTVersion = 3;
+  data.clientID.cstring = DeviceID;
+  data.username.cstring = mqtt_user;
+  data.password.cstring = mqtt_pass;
+  data.willFlag = true;
+  data.will.message.cstring = output;
+  data.will.topicName.cstring = topicEvent;
+  data.will.retained = false;
+  data.will.qos = 1;
+  
+  rc = client.connect(data);
+  if (rc != 0)
+  {
+    SerialMon.print("rc from MQTT connect is ");
+    SerialMon.println(rc);
+  }
+  SerialMon.println("MQTT connected");
+  event["event"] = "connect";
+  event["LDC"] = LDC;
+  serializeJson(event, output);
+  MQTT::Message ConnectMsg;
+  ConnectMsg.qos = MQTT::QOS1;
+  ConnectMsg.retained = false;
+  ConnectMsg.dup = false;
+  ConnectMsg.payload = output;
+  ConnectMsg.payloadlen = strlen(output)+1;
+  rc = client.publish(topicEvent, ConnectMsg);
+  rc = client.subscribe(topicCmd, MQTT::QOS1, messageArrived);   
+  if (rc == 0)
+  {
+    SerialMon.println("MQTT subscribed");
+    SerialMon.print("rc from MQTT subscribe is ");
+    SerialMon.println(rc);
+  }
+  if (!IsSetupComplete) //Add Boot is Complete Animation
+      {
+        IsSetupComplete = true;
+        for (byte k = MainBrightness; k > 0; k--)
+        {
+            matrix.fillScreen(PBColour);
+            matrix.setBrightness(k);
+            matrix.show();
+            delay(10);
+        }
+        matrix.fillScreen(0);
+        matrix.show();
+      }
+  //SerialMon.println("MQTT subscribed");
+}
+void messageArrived(MQTT::MessageData& md)
+{
+  MQTT::Message &message = md.message;
+  
+  SerialMon.print("Message arrived: qos");
+  SerialMon.print(message.qos);
+  SerialMon.print(", retained ");
+  SerialMon.print(message.retained);
+  SerialMon.print(", dup ");
+  SerialMon.print(message.dup);
+  SerialMon.print(", packetid ");
+  SerialMon.println(message.id);
+  SerialMon.print("Payload ");
+  SerialMon.println((char*)message.payload);
+  JSONApply((char*)message.payload);
+}
 void setup()
 {
   SerialMon.begin();
-  delay(3000);
-  SerialMon.println(F("BOOT"));
+  
   matrix.begin();
-  matrix.setBrightness(MainBrightness);
-  matrix.fillRect(0,0,2,16,PBColour);
+  ProgressBar(2);
   matrix.show();
-
   SerialAT.begin(115200);
-  matrix.fillRect(0,0,4,16,PBColour);
-  matrix.show();
+  ProgressBar(4);
+  delay(6000);
 
-  delay(3000);
-  SerialMon.println("INIT");
   SerialMon.print("Firmware ");
   SerialMon.print(FW_NAME);  
   SerialMon.print(", version ");
   SerialMon.print(FW_VERSION);
   SerialMon.print(",build ");  
   SerialMon.println(BUILD);
-  matrix.fillRect(0,0,6,16,PBColour);
-  matrix.show();
-
+  ProgressBar(6);
   modem.init();
-  String modemInfo = modem.getModemInfo();
-  SerialMon.print(F("Modem Info: "));
-  SerialMon.println(modemInfo);
-  DeviceImei = modem.getIMEI();
+  String DeviceImei = modem.getIMEI();
+  if(DeviceImei == "")
+  {
+    error(1);
+  }
   DeviceImei.toCharArray(DeviceID, 16);
   SerialMon.print("Lamp ID number: ");
   SerialMon.println(DeviceID);
-  strcat(topicService, DeviceID);
-  strcat(topicStatus, DeviceID);
-  strcat(topicService, "/GSM/RSSI");
-  strcat(topicStatus, "/lamp");
-  SerialMon.print("TopicStatus: ");
-  SerialMon.println(topicStatus);
-  SerialMon.println(topicService);
-  if(DeviceImei == "")
-  {
-    SerialMon.println("Error 1: No modem");
-    error(1);
-  }
-  matrix.fillRect(0,0,8,16,PBColour);
-  matrix.show();
+  //Topics formation
+    strcat(topicState, DeviceID);
+    strcat(topicCmd, DeviceID);
+    strcat(topicState, "/state");
+    strcat(topicCmd, "/command");
+    strcat(topicEvent, DeviceID);
+    strcat(topicEvent, "/event/disconnect");
 
+  ProgressBar(8);
   if(modem.getSimStatus() != 1)
   {
-    //Serial.print("NO SIM");
     error(5);
   }
   SerialMon.print("NET? ");
   if (!modem.waitForNetwork())
   {
-    NetRT++;
-    SerialMon.println("!OK");
     error(2);
   }
   if (modem.isNetworkConnected())
   {
     NetRT = 0;
     SerialMon.println("OK");
+    ProgressBar(10);
   }
-  matrix.fillRect(0,0,10,16,PBColour);
-  matrix.show();
-
-  int csq = modem.getSignalQuality();
-  int RSSI = -113 +(csq*2);
-  SerialMon.print("RSSI? ");
-  SerialMon.println(RSSI);
   SerialMon.print("GPRS?");
   if (!modem.gprsConnect(apn, gprsUser, gprsPass))
   {
@@ -181,151 +262,229 @@ void setup()
   if (modem.isGprsConnected()) 
   {
     SerialMon.println(F(" OK"));
+    ProgressBar(12);
   }
-  matrix.fillRect(0,0,12,16,PBColour);
-  matrix.show();
   ts.addTask(tNotification);
-  ts.addTask(tRSSI);
-  tRSSI.enable();
+  ts.addTask(tState);
+  // MQTT Broker setup
   SerialMon.println(F("SETUP"));
-  matrix.fillRect(0,0,14,16,PBColour);
+  ProgressBar(14);
   connect();
+  tState.enable();
+  //ServTimer = millis();
 }
-
 void loop()
 {
-    ts.execute();
-    if (!client.yield())
+  ts.execute();
+  if (!client.yield())
     {
     connect();
     }
-    
 }
-void connect()
-{
-
-  Serial.print("Connecting to ");
-  Serial.print(broker);
-  Serial.print(":");
-  Serial.println(port);
- 
-  int rc = ipstack.connect(broker, port);
-  if (rc != 1)
-  {
-    Serial.print("rc from TCP connect is ");
-    Serial.println(rc);
-  }
-  Serial.println("MQTT connecting");
-  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;       
-  data.MQTTVersion = 3;
-  data.clientID.cstring = DeviceID;
-  data.username.cstring = mqtt_user;
-  data.password.cstring = mqtt_pass;
-  rc = client.connect(data);
-  if (rc != 0)
-  {
-    Serial.print("rc from MQTT connect is ");
-    Serial.println(rc);
-  }
-  Serial.println("MQTT connected");
-  MQTT::Message RegisterMsg;
-  RegisterMsg.qos = MQTT::QOS0;
-  RegisterMsg.retained = false;
-  RegisterMsg.dup = false;
-  RegisterMsg.payload = DeviceID;
-  RegisterMsg.payloadlen = strlen(DeviceID)+1;
-  rc = client.publish(topicRegister, RegisterMsg);
-  if (!IsSetupComplete) //Add Boot is Complete Animation
-      {
-        IsSetupComplete = true;
-        for (byte k = MainBrightness; k > 0; k--)
-        {
-            matrix.fillScreen(PBColour);
-            matrix.setBrightness(k);
-            matrix.show();
-            delay(10);
-        }
-        matrix.fillScreen(0);
-        matrix.show();
-      }
-  rc = client.subscribe(topicStatus, MQTT::QOS0, messageArrived);   
-  if (rc == 0)
-  {
-    Serial.println("MQTT subscribed");
-    Serial.print("rc from MQTT subscribe is ");
-    Serial.println(rc);
-  }
-  //Serial.println("MQTT subscribed");
-  PublishRSSI();
-}
-void messageArrived(MQTT::MessageData& md)
-{
-  MQTT::Message &message = md.message;
-  
-  Serial.print("Message arrived: qos");
-  Serial.print(message.qos);
-  Serial.print(", retained ");
-  Serial.print(message.retained);
-  Serial.print(", dup ");
-  Serial.print(message.dup);
-  Serial.print(", packetid ");
-  Serial.println(message.id);
-  Serial.print("Payload ");
-  Serial.println((char*)message.payload);
-
-  if (!strncmp((char *)message.payload, "on", message.payloadlen))
-  {
-    SerialMon.println(F("LED ON"));
-    if(!tNotification.isEnabled())
-    {
-    tNotification.enable();
-    }
-  }
-  else if (!strncmp((char *)message.payload, "off", message.payloadlen))
-  {
-    SerialMon.println(F("LED OFF"));
-    tNotification.disable();
-  }
-}
+//Notification Task
 bool NotiOnEnable()
 {
-    Fadein(NBColour, NotiBrightness);
+    //Fadein(NotiColour, NotiBrightness);
+    NotiOn = true;
+    SerialMon.println(F("Notification enabled"));
     return true;
 }
 void NotiOnDisable()
 {
-  FadeOut(NBColour, NotiBrightness);
+    //FadeOut(NotiColour, NotiBrightness);
+    NotiOn = false;
 }
 void NotiCallback()
 {
-  
-  for (byte i = 0; i <= 17; i++)
-  {
-    matrix.fillScreen(NBColour);
-    matrix.drawLine(i, 0, i, 16, NSColour);
-    matrix.drawLine(i + 1, 0, i + 1, 16, NSGColour);
-    matrix.drawLine(i - 1, 0, i - 1, 16, NSGColour);
-    matrix.show();
-    if (i <= 8)
-    {
-      //delay(delays-(i*delayk));
-      delay(delays);
-      matrix.setBrightness(NotiBrightness + (i * brc));
-    }
-    else
-    {
-      // delay(delays-(8*delayk)+(i*delayk));
-      matrix.setBrightness(100 - (i - 8)*brc);
-      delay(delays);
-    }
-    //yield();
-  }
-  
+    /*  switch(pattern)
+      {
+          case 0: pulse(); break;
+          case 1: mixed(); break;
+      }*/
 }
+//Signal Test Task
+void SignalTest ()
+{
+    int RSSI = -113 +(modem.getSignalQuality()*2);
+    if (RSSI <=  -110)
+    {
+        matrix.fillScreen(matrix.Color(139,0,0));
+        matrix.show();
+    }
+    else if (RSSI >  -110 && RSSI < -100)
+    {
+        matrix.fillScreen(matrix.Color(220,20,60));
+        matrix.show();
+    }
+    else if (RSSI >=  -100 && RSSI < -85)
+    {
+        matrix.fillScreen(matrix.Color(255,165,0));
+        matrix.show();
+    }
+    else if (RSSI >=  -85 && RSSI < -70)
+    {
+        matrix.fillScreen(matrix.Color(255,255,0));
+        matrix.show();
+    }
+    else if (RSSI >=  -70)
+    {
+        matrix.fillScreen(matrix.Color(0,0,255));
+        matrix.show();    
+        }
+}
+bool SignalTestEn()
+{
+  for(int i = 0; i<3; i++)
+  {
+    matrix.setBrightness(MainBrightness);
+    matrix.fillScreen(matrix.Color(255,165,0));
+    matrix.show();
+    delay(500);
+    matrix.fillScreen(matrix.Color(0,0,0));
+    matrix.show();
+    delay(500);
+  }
+  SerialMon.println(F("SignalTest has been started"));
+  return true;
+}
+void SignalTestDis()
+{
+  for(int i = 0; i<3; i++)
+  {
+    matrix.setBrightness(MainBrightness);
+    matrix.fillScreen(matrix.Color(255,165,0));
+    matrix.show();
+    delay(500);
+    matrix.fillScreen(matrix.Color(0,0,0));
+    matrix.show();
+    delay(500);
+  }
+  SerialMon.println(F("SignalTest has been disabled"));
+}
+//Service 
+void PublishState ()
+{
+      char status[128];
+      StaticJsonDocument<128> state;
+      if(tNotification.isEnabled())
+      {
+          switch (pattern)
+          {
+            case 0: state["mode"] = "pulse"; break;
+            case 1: state["mode"] = "mixed"; break;
+          }
+      }
+      else
+      {
+          state["mode"] = "off";
+      }
+      uint64_t colour = (sendR*1000000000)+(sendG*1000000)+(sendB*1000)+NotiBrightness;
+      state["color"] = colour;
+      SerialMon.println(colour);
+      state["RSSI"] = -113 +(modem.getSignalQuality()*2);
+      serializeJson(state, status);
+      MQTT::Message StateMsg;
+      StateMsg.qos = MQTT::QOS1;
+      StateMsg.retained = false;
+      StateMsg.dup = false;
+      StateMsg.payload = status;
+      StateMsg.payloadlen = strlen(status)+1;
+      client.publish(topicState, StateMsg);
+      SerialMon.print("Published state: ");
+      SerialMon.print(status);
+      SerialMon.println("!");
+}
+void JSONApply(char *payload)
+{
+    StaticJsonDocument<100> config;
+    DeserializationError error = deserializeJson(config, payload);
+    if (error)
+    {
+       SerialMon.println(F("Not JSON or deserialize error"));
+       return;
+    }
+    if (config["mode"] == "pulse")
+    {
+      TestMode = false;
+      tSignalTest.disable();
 
+          //Colour change
+          uint64_t colour = config["color"];
+          int r = colour / 1000000000;
+          int g = (colour % 1000000000)/1000000;
+          int b = (colour % 1000000)/1000;
+          int a = colour % 1000;
+          SerialMon.print(F("Got colour (RGBA): "));
+          SerialMon.print(r);
+          SerialMon.print(F(", "));
+          SerialMon.print(g);
+          SerialMon.print(F(", "));
+          SerialMon.print(b);
+          SerialMon.print(F(", "));
+          SerialMon.println(a);
+          NotiColour = matrix.Color(r,g,b);
+          NotiBrightness = a;
+          tNotification.setCallback(&pulse);
+          pattern = 0;
+          //Colour change end
+    }
+    else if (config["mode"] == "mixed")
+    {
+      TestMode = false;
+      tSignalTest.disable();
+
+          //Colour change
+          uint64_t colour1 = config["color"];
+          uint64_t colour2 = config["colour2"];
+          int r1 = colour1 / 1000000000;
+          int g1 = (colour1 % 1000000000)/1000000;
+          int b1 = (colour1 % 1000000)/1000;
+          int a1 = colour1 % 1000;
+          int r2 = colour2 / 1000000000;
+          int g2 = (colour2 % 1000000000)/1000000;
+          int b2 = (colour2 % 1000000)/1000;
+          int a2 = colour2 % 1000;
+          SerialMon.print(F("Got colour (RGBA): "));
+          SerialMon.print(r1);
+          SerialMon.print(F(", "));
+          SerialMon.print(g1);
+          SerialMon.print(F(", "));
+          SerialMon.print(b1);
+          SerialMon.print(F(", "));
+          SerialMon.println(a1);
+          SerialMon.print(F("Got colour 2 (RGBA): "));
+          SerialMon.print(r2);
+          SerialMon.print(F(", "));
+          SerialMon.print(g2);
+          SerialMon.print(F(", "));
+          SerialMon.print(b2);
+          SerialMon.print(F(", "));
+          SerialMon.println(a2);
+          NotiColour = matrix.Color(r1,g1,b1);
+          NotiBrightness = a1;
+          MixedColour = matrix.Color(r2,g2,b2);
+          tNotification.setCallback(&mixed);
+          pattern = 1;
+          //Colour change end
+    }
+    else if (config["mode"] == "test")
+    {
+      SerialMon.println(F("Config: Test mode"));
+      TestMode = true;
+      tNotification.disable();
+      tSignalTest.enable();
+    }
+    if(config["mode"]=="off")
+    {
+        SerialMon.println(F("LED OFF"));
+        tNotification.disable();
+        PublishState();
+    }
+}
 void error(int errcode)
 {
-    Serial.println("ERROR " + errcode);
+    SerialMon.println("ERROR " + errcode);
+    delay(500);
     while(1)
     {
       matrix.fillScreen(matrix.Color(255,0,0));
@@ -381,80 +540,134 @@ void error(int errcode)
       }
     }
 }
-void FadeOut(uint32_t fadecolour, int brightness)
+void ProgressBar (int pb)
 {
-  matrix.setBrightness(brightness);
-  matrix.fillScreen(fadecolour);
-  matrix.show();
-  
-  for (byte k = brightness; k > 0; k--)
-  {
-    matrix.fillScreen(fadecolour);
-    matrix.setBrightness(k);
-    matrix.show();
-    delay(10);
-  }
-  matrix.setBrightness(brightness);
-  matrix.fillScreen(matrix.Color(0, 0, 0));
+  matrix.fillRect(0,0,pb,16,matrix.Color(255,255,255));
   matrix.show();
 }
-void LampAct(uint32_t Colour, byte Brightness)
-{
-  for (byte j = 0; j < Brightness; j++)
-  {
-    matrix.setBrightness(j);
-    matrix.fillScreen(Colour);
-    matrix.show();
-  }
-  matrix.setBrightness(Brightness);
-  matrix.fillScreen(Colour);
-  matrix.show();
-}
+//Animations
 void Fadein(uint32_t fadecolor, int brightness)
 {
+  matrix.setBrightness(0);
+  matrix.fillScreen(fadecolor);
+  matrix.show();
   for (byte j = 0; j < brightness; j++)
   {
     matrix.setBrightness(j);
+    delay(1);
     matrix.fillScreen(fadecolor);
     matrix.show();
   }
 }
-void PublishRSSI ()
+void FadeOut(uint32_t fadecolour, int brightness)
 {
-      int csq = modem.getSignalQuality();
-      int RSSI = -113 +(csq*2);
-      char serrssi[4];
-      itoa(RSSI, serrssi, 10);
-      MQTT::Message RSSIMsg;
-      RSSIMsg.qos = MQTT::QOS0;
-      RSSIMsg.retained = false;
-      RSSIMsg.dup = false;
-      RSSIMsg.payload = serrssi;
-      RSSIMsg.payloadlen = strlen(serrssi)+1;
-      client.publish(topicService, RSSIMsg);
+  //matrix.setBrightness(brightness);
+  for (byte k = brightness; k > 0; k-=2)
+  {
+    matrix.setBrightness(k);
+    delay(1);
+  }
+  matrix.fillScreen(matrix.Color(0, 0, 0));
+  matrix.show();
 }
-void SignalTest ()
+void Light()
 {
-    int csq = modem.getSignalQuality();
-    int RSSI = -113 +(csq*2);
-    if (RSSI <=  -110)
-    {
-        matrix.fillScreen(matrix.Color(139,0,0));
-    }
-    else if (RSSI >  -110 && RSSI < -100)
-    {
-        matrix.fillScreen(matrix.Color(220,20,60));
-    }
-    else if (RSSI >=  -100 && RSSI < -85)
-    {
-        matrix.fillScreen(matrix.Color(255,165,0));
-    }
-    else if (RSSI >=  -85 && RSSI < -70)
-    {
-        matrix.fillScreen(matrix.Color(255,255,0));
-    }
-    else if (RSSI >=  -70)
-    {
-        matrix.fillScreen(matrix.Color(0,0,255));
-    }
+  if(!NotiOn)
+  {
+      NotiOn = true;
+      matrix.setBrightness(NotiBrightness);
+      matrix.fillScreen(NotiColour);
+      matrix.show();
+  }
+  else
+  {
+    return;
+  }
 }
+void pulse()
+{
+  for (byte i = 0; i <= NotiBrightness; i++)
+  {
+    matrix.fillScreen(NotiColour);
+    if (i < (NotiBrightness/2))
+    {
+      matrix.setBrightness(i);
+      matrix.show();
+      delay(PulseDelay);
+    }
+    else if (i == (NotiBrightness/2))
+    {
+      matrix.setBrightness(i);
+      matrix.show();
+      delay(WaveDelay);
+    }
+    else
+    {
+      matrix.setBrightness(NotiBrightness - i);
+      matrix.show();
+      delay(PulseDelay);
+    }
+  }
+  delay(WaveDelay);
+}
+void wave()
+{
+  float brc = (NotiBrightness - MinBrightness) / 8;
+  for (byte i = 0; i <= 17; i++)
+  {
+    matrix.fillScreen(NotiColour);
+    matrix.drawLine(i, 0, i, 16, NSColour);
+    matrix.drawLine(i + 1, 0, i + 1, 16, NSGColour);
+    matrix.drawLine(i - 1, 0, i - 1, 16, NSGColour);
+    matrix.show();
+    if (i <= 8)
+    {
+      //delay(delays-(i*delayk));
+      matrix.setBrightness(MinBrightness+ (i * brc));
+      delay(PulseDelay);
+    }
+    else
+    {
+      // delay(delays-(8*delayk)+(i*delayk));
+      matrix.setBrightness(NotiBrightness - (i - 8)*brc);
+      delay(PulseDelay);
+    }
+  }
+}
+void mixed()
+{
+  if(ColCh)
+  { 
+      matrix.fillScreen(NotiColour);
+        
+  }
+  else
+  { 
+      matrix.fillScreen(MixedColour);
+  }
+  ColCh = !ColCh;
+  for (byte i = 0; i <= NotiBrightness; i++)
+  {
+    
+    if (i < (NotiBrightness/2))
+    {
+      matrix.setBrightness(i);
+      matrix.show();
+      delay(PulseDelay);
+    }
+    else if (i == (NotiBrightness/2))
+    {
+      matrix.setBrightness(i);
+      matrix.show();
+      delay(WaveDelay);
+    }
+    else
+    {
+      matrix.setBrightness(NotiBrightness - i);
+      matrix.show();
+      delay(PulseDelay);
+    }
+  }
+  delay(WaveDelay);
+}
+
