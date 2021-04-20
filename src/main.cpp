@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan DVT4"
-#define FW_VERSION      "v2.2.1"
+#define FW_VERSION      "v2.2.1 Master"
 #define TINY_GSM_MODEM_SIM800
 #define ARDUINOJSON_USE_LONG_LONG 1
 
@@ -118,16 +118,16 @@ bool mqttConnect()
   while (!mqtt.connected())
   {
     SerialMon.print(F("MQTT?"));
-    if (mqtt.connect(DeviceID, mqtt_user, mqtt_pass, topicEvent, 1, false, output))
+    if (mqtt.connect(DeviceID, mqtt_user, mqtt_pass, topicEvent, 1, true, output))
     {
       Serial.println(F(" OK"));
       event["event"] = "connect";
       event["LDC"] = LDC;
       serializeJson(event, output);
-      mqtt.publish(topicEvent, output);
+      mqtt.publish(topicEvent, output, true);
       SerialMon.println(F("Published connected: "));
       SerialMon.println(F(output));
-      LDC = 1;
+      LDC++;
       PublishState();
       mqtt.subscribe(topicCmd,1);
       if (!IsSetupComplete) //Add Boot is Complete Animation
