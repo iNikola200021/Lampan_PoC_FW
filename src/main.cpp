@@ -52,15 +52,13 @@ const uint32_t PBColour = matrix.Color(255,255,255); //Progress Bar Colour
 const byte MainBrightness = 40;
 byte NotiBrightness = 100;
 //Wave anim
-float WaveDelay = 2000;
+float AnimDelay = 2000;
 const byte MinBrightness = 20;
 uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
 uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour 
  //Main Background Colour
 uint16_t NotiColour = matrix.Color(0, 255, 0);
-uint64_t sendR = 0;
-uint32_t sendG = 0;
-int sendB = 0;
+char CurrentColour[13];
 bool TestMode = false;
 //Technical variables
 bool NotiOn = false;
@@ -106,7 +104,7 @@ void button();
 //Task 1 - Notification
 //Task 2 - Publish State
 //Task 3 - Signal Test
-Task tNotification(WaveDelay*TASK_MILLISECOND, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
+Task tNotification(AnimDelay*TASK_MILLISECOND, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tState(StateFreq*TASK_MINUTE, TASK_FOREVER, &PublishState, &ts);
 Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts, false, &SignalTestEn, &SignalTestDis);
 
@@ -178,7 +176,6 @@ void setup()
   
   matrix.begin();
   ProgressBar(2);
-  matrix.show();
   SerialAT.begin(115200);
   ProgressBar(4);
   delay(6000);
@@ -350,15 +347,21 @@ void PublishState ()
       StaticJsonDocument<128> state;
       if(NotiOn)
       {
-          state["mode"] = "light";
+          switch(pattern)
+          {
+            case 0: state["mode"] = "pulse"; break;
+            case 1: state["mode"] = "mixed"; break;
+          }
+      }
+      else if(TestMode)
+      {
+        state["mode"] = "test";
       }
       else
       {
           state["mode"] = "off";
       }
-      uint64_t colour = (sendR*1000000000)+(sendG*1000000)+(sendB*1000)+NotiBrightness;
-      state["color"] = colour;
-      SerialMon.println(colour);
+      state["color"] = CurrentColour;
       state["RSSI"] = -113 +(modem.getSignalQuality()*2);
       serializeJson(state, status);
       mqtt.publish(topicState, status);
@@ -380,12 +383,14 @@ void JSONApply(byte *payload, unsigned int len)
        SerialMon.println(F("Not JSON or deserialize error"));
        return;
     }
-    if (config["mode"] == "pulse")
+    if (!(config["mode"] == "test") || !(config["mode"] == "off"))
     {
       TestMode = false;
       tSignalTest.disable();
 
           //Colour change
+          String CC = config["color"];
+          CC.toCharArray(CurrentColour,13);
           uint64_t colour = config["color"];
           int r = colour / 1000000000;
           int g = (colour % 1000000000)/1000000;
@@ -399,78 +404,55 @@ void JSONApply(byte *payload, unsigned int len)
           SerialMon.print(b);
           SerialMon.print(F(", "));
           SerialMon.println(a);
-          uint32_t NewColour = matrix.Color(r,g,b);
-          byte NewBr = a;
-          if (NotiColour != NewColour || NotiBrightness != NewBr)
+          NotiColour = matrix.Color(r,g,b);
+          NotiBrightness = a;
+          if (config["mode"] == "mixed")
           {
-            tNotification.disable();
-            NotiColour = matrix.Color(r,g,b);
-            sendR = r;
-            sendG = g;
-            sendB = b;
-            NotiBrightness = a;
-            PublishState();
-            tNotification.enable();
+            SerialMon.println(F("Mixed mode"));
+            uint64_t colour2 = config["color2"];
+            int r2 = colour2 / 1000000000;
+            int g2 = (colour2 % 1000000000)/1000000;
+            int b2 = (colour2 % 1000000)/1000;
+            int a2 = colour2 % 1000;
+            SerialMon.print(F("Got colour 2 (RGBA): "));
+            SerialMon.print(r2);
+            SerialMon.print(F(", "));
+            SerialMon.print(g2);
+            SerialMon.print(F(", "));
+            SerialMon.print(b2);
+            SerialMon.print(F(", "));
+            SerialMon.println(a2);
+            MixedColour = matrix.Color(r2,g2,b2);
+            pattern = 1;
           }
-          pattern = 0;
-          //Colour change end
-    }
-    else if (config["mode"] == "mixed")
-    {
-      TestMode = false;
-      tSignalTest.disable();
-
-          //Colour change
-          uint64_t colour1 = config["color"];
-          uint64_t colour2 = config["colour2"];
-          int r1 = colour1 / 1000000000;
-          int g1 = (colour1 % 1000000000)/1000000;
-          int b1 = (colour1 % 1000000)/1000;
-          int a1 = colour1 % 1000;
-          int r2 = colour2 / 1000000000;
-          int g2 = (colour2 % 1000000000)/1000000;
-          int b2 = (colour2 % 1000000)/1000;
-          int a2 = colour2 % 1000;
-          SerialMon.print(F("Got colour (RGBA): "));
-          SerialMon.print(r1);
-          SerialMon.print(F(", "));
-          SerialMon.print(g1);
-          SerialMon.print(F(", "));
-          SerialMon.print(b1);
-          SerialMon.print(F(", "));
-          SerialMon.println(a1);
-          SerialMon.print(F("Got colour 2 (RGBA): "));
-          SerialMon.print(r2);
-          SerialMon.print(F(", "));
-          SerialMon.print(g2);
-          SerialMon.print(F(", "));
-          SerialMon.print(b2);
-          SerialMon.print(F(", "));
-          SerialMon.println(a2);
-          NotiColour = matrix.Color(r1,g1,b1);
-          NotiBrightness = a1;
-          MixedColour = matrix.Color(r2,g2,b2);
-          pattern = 1;
+          else if (config["mode"] == "pulse")
+          {
+              SerialMon.println(F("Pulse mode"));
+              pattern = 0;
+          }
+          tNotification.enable();
           //Colour change end
     }
     else if (config["mode"] == "test")
     {
-      SerialMon.println(F("Config: Test mode"));
+      SerialMon.println(F("Test mode"));
       TestMode = true;
       tNotification.disable();
       tSignalTest.enable();
     }
     if(config["mode"]=="off")
     {
-        SerialMon.println(F("LED OFF"));
+        SerialMon.println(F("Notification off"));
+        TestMode = false;
+        tSignalTest.disable();
         tNotification.disable();
-        PublishState();
     }
+    PublishState();
 }
 void error(int errcode)
 {
-    Serial.println("ERROR " + errcode);
-    delay(500);
+    Serial.println("Error " + errcode);
+    delay(1000);
     while(1)
     {
       matrix.fillScreen(matrix.Color(255,0,0));
@@ -558,17 +540,16 @@ void FadeOut(uint32_t fadecolour, int brightness)
 }
 void Light()
 {
-  if(!NotiOn)
-  {
-      NotiOn = true;
+    if(tNotification.isFirstIteration())
+    {
       matrix.setBrightness(NotiBrightness);
       matrix.fillScreen(NotiColour);
       matrix.show();
-  }
-  else
-  {
-    return;
-  }
+    }
+    else
+    {
+      return;
+    }
 }
 void pulse()
 {
@@ -579,22 +560,22 @@ void pulse()
     {
       matrix.setBrightness(i);
       matrix.show();
-      delay(PulseDelay);
+      tNotification.delay(PulseDelay);
     }
     else if (i == (NotiBrightness/2))
     {
       matrix.setBrightness(i);
       matrix.show();
-      delay(WaveDelay);
+      tNotification.delay(AnimDelay);
     }
     else
     {
       matrix.setBrightness(NotiBrightness - i);
       matrix.show();
-      delay(PulseDelay);
+      tNotification.delay(PulseDelay);
     }
   }
-  delay(WaveDelay);
+  tNotification.delay(AnimDelay);
 }
 void wave()
 {
@@ -622,19 +603,16 @@ void wave()
 }
 void mixed()
 {
-  if(ColCh)
-  { 
-      matrix.fillScreen(NotiColour);
-        
-  }
-  else
-  { 
-      matrix.fillScreen(MixedColour);
-  }
-  ColCh = !ColCh;
   for (byte i = 0; i <= NotiBrightness; i++)
   {
-    
+    if(ColCh)
+    { 
+        matrix.fillScreen(NotiColour);
+    }
+    else
+    { 
+       matrix.fillScreen(MixedColour);
+    }
     if (i < (NotiBrightness/2))
     {
       matrix.setBrightness(i);
@@ -645,7 +623,7 @@ void mixed()
     {
       matrix.setBrightness(i);
       matrix.show();
-      delay(WaveDelay);
+      delay(AnimDelay);
     }
     else
     {
@@ -654,6 +632,7 @@ void mixed()
       delay(PulseDelay);
     }
   }
-  delay(WaveDelay);
+  delay(AnimDelay);
+  ColCh = !ColCh;
 }
 
