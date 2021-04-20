@@ -1,6 +1,6 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan DVT4"
-#define FW_VERSION      "v2.2.1 alpha 1"
+#define FW_VERSION      "v2.2.1"
 #define TINY_GSM_MODEM_SIM800
 #define ARDUINOJSON_USE_LONG_LONG 1
 
@@ -43,7 +43,7 @@ char topicCmd[32]= "$device/";
 char topicEvent[45]= "$device/";
 int LDC = 0;
 //Pulse anim
-const byte PulseDelay = 20;
+const byte PulseDelay = 40;
 //Mixed anim
 bool ColCh = true;
 uint32_t MixedColour = matrix.Color(255, 165, 0); //Mixed Notification Colour
@@ -59,6 +59,7 @@ uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour
  //Main Background Colour
 uint16_t NotiColour = matrix.Color(0, 255, 0);
 char CurrentColour[13];
+char CurrentMixedColour[13];
 bool TestMode = false;
 //Technical variables
 bool NotiOn = false;
@@ -89,7 +90,7 @@ void NotiOnDisable();
 byte pattern = 0;
 void Light(); 
 void wave();
-void pulse();
+void pulse(uint32_t Colour);
 void mixed();
 //Service functions
 void ProgressBar (int pb);
@@ -104,7 +105,7 @@ void button();
 //Task 1 - Notification
 //Task 2 - Publish State
 //Task 3 - Signal Test
-Task tNotification(AnimDelay*TASK_MILLISECOND, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
+Task tNotification(TASK_IMMEDIATE, TASK_FOREVER, &NotiCallback, &ts,false, &NotiOnEnable, &NotiOnDisable);
 Task tState(StateFreq*TASK_MINUTE, TASK_FOREVER, &PublishState, &ts);
 Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts, false, &SignalTestEn, &SignalTestDis);
 
@@ -124,6 +125,8 @@ bool mqttConnect()
       event["LDC"] = LDC;
       serializeJson(event, output);
       mqtt.publish(topicEvent, output);
+      SerialMon.println(F("Published connected: "));
+      SerialMon.println(F(output));
       LDC = 1;
       PublishState();
       mqtt.subscribe(topicCmd,1);
@@ -202,7 +205,7 @@ void setup()
     strcat(topicState, "/state");
     strcat(topicCmd, "/command");
     strcat(topicEvent, DeviceID);
-    strcat(topicEvent, "/event/disconnect");
+    strcat(topicEvent, "/event");
 
   ProgressBar(8);
   if(modem.getSimStatus() != 1)
@@ -277,7 +280,7 @@ void NotiCallback()
 {
       switch(pattern)
       {
-          case 0: pulse(); break;
+          case 0: pulse(NotiColour); break;
           case 1: mixed(); break;
       }
 }
@@ -343,14 +346,14 @@ void SignalTestDis()
 //Service 
 void PublishState ()
 {
-      char status[128];
-      StaticJsonDocument<128> state;
+      char status[256];
+      StaticJsonDocument<256> state;
       if(NotiOn)
       {
           switch(pattern)
           {
             case 0: state["mode"] = "pulse"; break;
-            case 1: state["mode"] = "mixed"; break;
+            case 1: state["mode"] = "mixed";  state["color2"] = CurrentMixedColour; break;
           }
       }
       else if(TestMode)
@@ -383,7 +386,7 @@ void JSONApply(byte *payload, unsigned int len)
        SerialMon.println(F("Not JSON or deserialize error"));
        return;
     }
-    if (!(config["mode"] == "test") || !(config["mode"] == "off"))
+    if ((config["mode"] == "pulse") || (config["mode"] == "mixed"))
     {
       TestMode = false;
       tSignalTest.disable();
@@ -409,6 +412,8 @@ void JSONApply(byte *payload, unsigned int len)
           if (config["mode"] == "mixed")
           {
             SerialMon.println(F("Mixed mode"));
+            String CC2 = config["color2"];
+            CC2.toCharArray(CurrentMixedColour,13);
             uint64_t colour2 = config["color2"];
             int r2 = colour2 / 1000000000;
             int g2 = (colour2 % 1000000000)/1000000;
@@ -510,6 +515,7 @@ void error(int errcode)
 }
 void ProgressBar (int pb)
 {
+  matrix.setBrightness(40);
   matrix.fillRect(0,0,pb,16,matrix.Color(255,255,255));
   matrix.show();
 }
@@ -551,11 +557,11 @@ void Light()
       return;
     }
 }
-void pulse()
+void pulse(uint32_t Colour)
 {
   for (byte i = 0; i <= NotiBrightness; i++)
   {
-    matrix.fillScreen(NotiColour);
+    matrix.fillScreen(Colour);
     if (i < (NotiBrightness/2))
     {
       matrix.setBrightness(i);
@@ -603,36 +609,11 @@ void wave()
 }
 void mixed()
 {
-  for (byte i = 0; i <= NotiBrightness; i++)
+  switch (ColCh)
   {
-    if(ColCh)
-    { 
-        matrix.fillScreen(NotiColour);
-    }
-    else
-    { 
-       matrix.fillScreen(MixedColour);
-    }
-    if (i < (NotiBrightness/2))
-    {
-      matrix.setBrightness(i);
-      matrix.show();
-      delay(PulseDelay);
-    }
-    else if (i == (NotiBrightness/2))
-    {
-      matrix.setBrightness(i);
-      matrix.show();
-      delay(AnimDelay);
-    }
-    else
-    {
-      matrix.setBrightness(NotiBrightness - i);
-      matrix.show();
-      delay(PulseDelay);
-    }
+     case true: pulse(NotiColour); break;
+     case false: pulse(MixedColour); break;
   }
-  delay(AnimDelay);
   ColCh = !ColCh;
 }
 
