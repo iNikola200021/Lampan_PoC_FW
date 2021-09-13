@@ -1,9 +1,10 @@
 const char BUILD[] = __DATE__ " " __TIME__;
 #define FW_NAME         "Lampan DVT4"
-#define FW_VERSION      "v1.0.0-release"
+#define FW_VERSION      "v1.2-EEPROM"
 #define TINY_GSM_MODEM_SIM800
 #define ARDUINOJSON_USE_LONG_LONG 1
-
+#define USING_FLASH_SECTOR_NUMBER           (REGISTERED_NUMBER_FLASH_SECTORS - 2)
+#include <FlashStorage_STM32F1.h>
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -13,12 +14,16 @@ const char BUILD[] = __DATE__ " " __TIME__;
 #include <ArduinoJson.h>
 #include <TaskScheduler.h>
 #include <Adafruit_GFX.h>
-#define MATRIX_PIN A7
-#define SerialMon Serial
-#define SerialAT Serial1
+#define MATRIX_PIN PA7
+#define Terminal Serial
+#define SerialModem Serial1
 
+const int WRITTEN_SIGNATURE = 0x49544352;
+const int FSYS_SIGNATURE = 0x4C534E53;
+const int NVRAMAddr = sizeof(WRITTEN_SIGNATURE) + 16;
+const int FsysAddr = sizeof(WRITTEN_SIGNATURE);
 //Classes definition
-TinyGsm modem(SerialAT);
+TinyGsm modem(SerialModem);
 TinyGsmClient client(modem);
 PubSubClient mqtt(client);
 
@@ -28,6 +33,31 @@ Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(16, 16, MATRIX_PIN,
                             NEO_GRB            + NEO_KHZ800);
 
 Scheduler ts;
+
+// EEPROM ADRESSING
+// |           |               Fsys Block               |                         NVRAM                        |
+// |     0     |FsysAddr                                |NVRAMAddr                                             | 
+// |0 |1 |2 |3 |0|1|2|3|4|5|6|7|8|9|10| 11  |12|13|14|15|   0   |   1  |   2   | 3  | 4 | 5 | 6 | 7 |    8     |
+// | SIGNATURE |      SerialNumber    |UseSN| FsysSign  |AutoRst|SysStF|DftAnim|PuFD|PulsePF|PulseZF|ColourCorr|
+
+struct Fsys
+{
+    char SerialNumber [11];
+    bool UseSN; 
+    int FsysSign;
+};
+struct Settings
+{
+    bool AutoReset; 
+    uint8_t SysStateFreq;
+    uint8_t DefaultAnim;
+    uint8_t PulseFrameDelay; 
+    uint16_t PulsePeakFreeze; 
+    uint16_t PulseZeroFreeze; 
+    uint8_t ColourCorr;
+};
+Settings CurrentSettings;
+Fsys FsysBlock;
 
 //APN Credentials
 const char* apn = "internet.mts.ru";
@@ -42,11 +72,9 @@ char topicState[33]= "$device/";
 char topicCmd[32]= "$device/";
 char topicEvent[45]= "$device/";
 int LDC = 0;
-//Pulse anim
-uint16_t PulseFD = 10; //Delay time between frames. Milliseconds
-uint16_t PeakFreeze = 1000; //Delay time in peaks of pulse. Milliseconds
-uint16_t ZeroFreeze = 1000; //Delay time in zero brightness of pulse. Milliseconds
-uint16_t FN = 0;
+//Pulse anim //Delay time in peaks of pulse. Milliseconds
+//Delay time in zero brightness of pulse. Milliseconds
+uint16_t FN;
 //Mixed anim
 bool ColCh = false;
 //ProgressBar parameters
@@ -60,23 +88,16 @@ const byte MinBrightness = 20;
 uint32_t NSColour = matrix.Color(255, 255, 255); //Notification Strip Colour
 uint32_t NSGColour = matrix.Color(180, 255, 180); //Notification Gradient Colour 
 //Colours
-uint16_t MainColour = matrix.Color(0, 255, 0);
+uint32_t MainColour = matrix.Color(0, 255, 0);
 uint32_t MixedColour = matrix.Color(255, 165, 0); //Mixed Notification Colour
 char CurrentColour[13];
 char CurrentMixedColour[13];
 bool TestMode = false;
 //Technical variables
-bool IsSetupComplete = false;
+bool IsBooted = false;
 char DeviceID[16];
-uint32_t StateFreq = 1; //Minutes
-bool AutoReset = true;
 //Error variables
-byte NetRT = 0;
-byte GprsRT = 0;
 byte MqttRT = 0;
-//Error parameters
-const byte NetThreshold = 1;
-const byte GprsThreshold = 10;
 const byte MqttThreshold = 5;
 //FUNCTIONS DECLARATION
 //MQTT Functions
@@ -92,9 +113,8 @@ void NotiOnDisable();
 //Current mode: 0 - off; 1 - pulse; 2 - mixed; 3 - test;
 //Default Animation: 0 - pulse; 1 - wave;
 byte CurrentMode = 0;
-byte DefaultAnimation = 0;
 void wave(uint32_t Colour);
-void pulse(uint32_t Colour);
+void pulse(uint32_t Colour, Settings *set);
 void mixedPulse();
 void mixedWave();
 //Service functions
@@ -105,15 +125,18 @@ void SignalTest();
 bool SignalTestEn();
 void SignalTestDis();
 void FactoryReset();
-
+void ApplySettingsEvent();
+void AnimationChange();
+void getEEPROMData();
+uint32_t Colour32(uint8_t r, uint8_t g, uint8_t b);
 //TASKS
 //Task 1 - Notification
 //Task 2 - Publish State
 //Task 3 - Signal Test
 Task tNotification(TASK_IMMEDIATE, 0, &NotiCallback, &ts,false, &PulseOn, &NotiOnDisable);
-Task tState(StateFreq*TASK_MINUTE, TASK_FOREVER, &PublishState, &ts, true);
+Task tState(TASK_IMMEDIATE, TASK_FOREVER, &PublishState, &ts, false);
 Task tSignalTest(TASK_IMMEDIATE, TASK_FOREVER, &SignalTest, &ts, false, &SignalTestEn, &SignalTestDis);
-//Task tMQTT(TASK_IMMEDIATE, TASK_FOREVER, &MqttCheck, &ts);
+
 
 bool mqttConnect()
 {
@@ -123,37 +146,37 @@ bool mqttConnect()
   serializeJson(event, output);
   while (!mqtt.connected())
   {
-    SerialMon.print(F("MQTT?"));
+    Terminal.print(F("MQTT?"));
     if (mqtt.connect(DeviceID, mqtt_user, mqtt_pass, topicEvent, 1, true, output))
     {
-      Serial.println(F(" OK"));
+      Terminal.println(F(" OK"));
       event["event"] = "connect";
       event["LDC"] = LDC;
       serializeJson(event, output);
       mqtt.publish(topicEvent, output, true);
-      SerialMon.println(F("Published connected: "));
-      SerialMon.println(F(output));
+      Terminal.print(F("Published connected: "));
+      Terminal.println(output);
       LDC++;
       PublishState();
       mqtt.subscribe(topicCmd,1);
-      if (!IsSetupComplete) //Add Boot is Complete Animation
+      if (!IsBooted) //Add Boot is Complete Animation
       {
-        IsSetupComplete = true;
+        IsBooted = true;
         ProgressBar(16);
         tState.enable();
         FadeOut(PBColour, PBBrightness);
-        SerialMon.println(F("Boot complete"));
+        Terminal.println(F("Boot complete"));
       }
     }
     else
     {
       if(MqttRT < MqttThreshold)
       {
-          SerialMon.print(F(" NOT OK, status: "));
-          SerialMon.print(mqtt.state());
+          Terminal.print(F(" !OK, status: "));
+          Terminal.println(mqtt.state());
           MqttRT++;
       }
-      else
+      if(MqttRT == MqttThreshold)
       {
           error(4);
       }
@@ -172,7 +195,7 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
     DeserializationError error = deserializeJson(config, payld);
     if (error)
     {
-       SerialMon.println(F("Not JSON or deserialize error"));
+       Terminal.println(F("Not JSON or deserialize error"));
        return;
     }
     if ((config["mode"] == "pulse") || (config["mode"] == "mixed"))
@@ -182,9 +205,7 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
               tSignalTest.disable();
           }
           //Colour change
-          String CC = config["color"];
-          char NewColour1[13];
-          CC.toCharArray(NewColour1,13);
+          const char* NewColour1 = config["color"];
           uint64_t colour = config["color"];
           int r = colour / 1000000000;
           int g = (colour % 1000000000)/1000000;
@@ -193,10 +214,17 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
           if (NewColour1 != CurrentColour)
           {
               tNotification.disable();
-              MainColour = matrix.Color(r,g,b);
-              CC.toCharArray(CurrentColour,13);
+              if(CurrentSettings.ColourCorr == 1 || CurrentSettings.ColourCorr == 2)
+              {
+                MainColour = Colour32(r,g,b);
+              }
+              else
+              {
+                MainColour = matrix.Color(r,g,b);
+              }
+              strncpy(CurrentColour, NewColour1, strlen(NewColour1));
               NotiBrightness = a;
-              tNotification.setIterations((NotiBrightness*2)+1);
+              AnimationChange();
               if(config["mode"] == "pulse")
               {
                   CurrentMode = 1;
@@ -206,10 +234,7 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
           }
           if (config["mode"] == "mixed")
           {
-            SerialMon.println(F("Mixed mode"));
-            String CC2 = config["color2"];
-            char NewColour2[13];
-            CC2.toCharArray(NewColour2,13);
+            const char* NewColour2 = config["color2"];
             uint64_t colour2 = config["color2"];
             int r2 = colour2 / 1000000000;
             int g2 = (colour2 % 1000000000)/1000000;
@@ -217,14 +242,20 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
             if (NewColour2 != CurrentMixedColour)
             {
               tNotification.disable();
-              CC2.toCharArray(CurrentMixedColour,13);
-              MixedColour = matrix.Color(r2,g2,b2);
+              strncpy(CurrentMixedColour, NewColour2, strlen(NewColour2));
+              if(CurrentSettings.ColourCorr == 1 || CurrentSettings.ColourCorr == 2)
+              {
+                MixedColour = Colour32(r2,g2,b2);
+              }
+              else
+              {
+                MixedColour = matrix.Color(r2,g2,b2);
+              }
               tNotification.enable();
             }
             if(CurrentMode != 2)
             {
                 CurrentMode = 2;
-                SerialMon.print(CurrentMode);
                 tNotification.enable();
             }
             
@@ -239,70 +270,191 @@ void mqttRX(char* topic, byte* payload, unsigned int len)
     }
      else if(config["mode"]=="write-defaults")
     {
-        SerialMon.println(F("Write-defaults mode"));
-        if(config["process"]=="Notification")
-        { 
-            if(config["-a"]=="pulse")
-            {
-                DefaultAnimation = 0;
-            }
-            else if(config["-a"]=="wave")
-            {
-                DefaultAnimation = 1;
-            }
-        }
-        if(config["process"]=="State")
+        bool SettingsChanged = false;
+        if(config.containsKey("AutoReset") && CurrentSettings.AutoReset != config["AutoReset"])
         {
-            StateFreq = config["-t"];
+            CurrentSettings.AutoReset = (bool)config["AutoReset"];
+            EEPROM.update(NVRAMAddr, CurrentSettings.AutoReset);
+            SettingsChanged = true;
         }
-        if(config["process"]=="System")
+        if(config.containsKey("StateFrequency") && CurrentSettings.SysStateFreq != config["StateFrequency"])
         {
-            if(config["AutoReset"]=="true")
-            {
-                AutoReset = true;
-            }
-            else if(config["AutoReset"]=="false")
-            { 
-                AutoReset = false;
-            }
+            CurrentSettings.SysStateFreq = (uint8_t)config["StateFrequency"];
+            tState.setInterval(CurrentSettings.SysStateFreq*TASK_MINUTE);
+            EEPROM.update(NVRAMAddr + 1, CurrentSettings.SysStateFreq);
+            SettingsChanged = true;
         }
-        if(config["process"]=="Pulse")
+        if(config.containsKey("DefaultAnimation"))
         {
-            if(config["-FD"] != "") // FrameDelay
+            tNotification.disable();
+            if(config["DefaultAnimation"] == "pulse")
             {
-              PulseFD = config["-FD"];
+               CurrentSettings.DefaultAnim = 0;
+               EEPROM.update(NVRAMAddr + 2, CurrentSettings.DefaultAnim);
+               SettingsChanged = true;
             }
-            if(config["-PF"] != "") // Peak Freeze
+            else if(config["DefaultAnimation"] == "wave")
             {
-              PeakFreeze = config["-PF"];
+               CurrentSettings.DefaultAnim = 1;
+               EEPROM.update(NVRAMAddr + 2, CurrentSettings.DefaultAnim);
+               SettingsChanged = true;
             }
-            if(config["-ZF"] != "") //Zero Freeze
+            AnimationChange();
+            tNotification.enable();
+        }
+        if(config.containsKey("PulseFD") && CurrentSettings.PulseFrameDelay != config["PulseFD"]) // FrameDelay
+        {
+          uint8_t FD = config["PulseFD"];
+          Terminal.println(FD);
+          CurrentSettings.PulseFrameDelay = FD;
+          EEPROM.update(NVRAMAddr + 3, CurrentSettings.PulseFrameDelay);
+          SettingsChanged = true;
+        }
+        if(config.containsKey("PulsePF") && CurrentSettings.PulsePeakFreeze != config["PulsePF"]) // Peak Freeze
+        {
+          CurrentSettings.PulsePeakFreeze = (uint16_t)config["PulsePF"];
+          uint8_t HiB = highByte(CurrentSettings.PulsePeakFreeze);
+          uint8_t LoB = lowByte(CurrentSettings.PulsePeakFreeze);
+          EEPROM.update(NVRAMAddr + 4, HiB);
+          EEPROM.update(NVRAMAddr + 5, LoB);
+          SettingsChanged = true;
+        }
+        if(config.containsKey("PulseZF") && CurrentSettings.PulseZeroFreeze != config["PulseZF"]) //Zero Freeze
+        {
+          CurrentSettings.PulseZeroFreeze = (uint16_t)config["PulseZF"];
+          uint8_t HiB = highByte(CurrentSettings.PulseZeroFreeze);
+          uint8_t LoB = lowByte(CurrentSettings.PulseZeroFreeze);
+          EEPROM.update(NVRAMAddr + 6, HiB);
+          EEPROM.update(NVRAMAddr + 7, LoB);
+          SettingsChanged = true;
+        }
+        if(config.containsKey("ColourCorrection"))
+        {
+            uint64_t colour = MainColour;
+            int r = colour / 1000000000;
+            int g = (colour % 1000000000)/1000000;
+            int b = (colour % 1000000)/1000;
+            int a = colour % 1000;
+            uint64_t colour2 = MixedColour;
+            int r2 = colour2 / 1000000000;
+            int g2 = (colour2 % 1000000000)/1000000;
+            int b2 = (colour2 % 1000000)/1000;
+            tNotification.disable();
+            if(config["ColourCorrection"] == "matrix")
             {
-              ZeroFreeze = config["-ZF"]
+               CurrentSettings.ColourCorr = 0;
+               MainColour = matrix.Color(r,g,b);
+               MixedColour = matrix.Color(r2,g2,b2);
+               EEPROM.update(NVRAMAddr + 8, CurrentSettings.ColourCorr);
+               SettingsChanged = true;
             }
+            else if(config["ColourCorrection"] == "no_correction")
+            {
+               CurrentSettings.ColourCorr = 1;
+               MainColour = Colour32(r,g,b);
+               MixedColour = Colour32(r2,g2,b2);
+               EEPROM.update(NVRAMAddr + 8, CurrentSettings.ColourCorr);
+               SettingsChanged = true;
+            }
+            else if(config["ColourCorrection"] == "gamma")
+            {
+               CurrentSettings.ColourCorr = 2;
+               MainColour = Colour32(r,g,b);
+               MixedColour = Colour32(r2,g2,b2);
+               EEPROM.update(NVRAMAddr + 8, CurrentSettings.ColourCorr);
+               SettingsChanged = true;
+            }
+            tNotification.enable();
+        }
+        if(config.containsKey("SetSerialNumber") && FsysBlock.FsysSign != FSYS_SIGNATURE && config["Signature"] == FSYS_SIGNATURE)
+        {
+          const char* SN = config["SetSerialNumber"];
+          Terminal.print(F("Serial Number Set: "));
+          for (uint8_t i = 0; i < 11; i++)
+          {
+              EEPROM.update(FsysAddr + i, SN[i]);
+              Terminal.print(SN[i]);
+          }
+          Terminal.println();
+          EEPROM.put(FsysAddr + 12, FSYS_SIGNATURE);
+          EEPROM.commit();
+          NVIC_SystemReset();
+        }
+        if(config.containsKey("UseSN") && FsysBlock.FsysSign == FSYS_SIGNATURE && config["Signature"] == FSYS_SIGNATURE)
+        {
+          FsysBlock.UseSN = (bool)config["UseSN"];
+          EEPROM.update(FsysAddr + 11, FsysBlock.UseSN);
+          EEPROM.commit();
+          ApplySettingsEvent();
+          NVIC_SystemReset();
+        }
+        if(config.containsKey("FactoryReset"))
+        {
+          FactoryReset();
+        }
+        if (SettingsChanged)
+        {
+            EEPROM.commit();
+            ApplySettingsEvent();
+            Terminal.println("Settings Changed");
         }
     }
-    if(config["mode"]=="off")
+    else if(config["mode"]=="off")
     {
         CurrentMode = 0;
         tSignalTest.disable();
         tNotification.disable();
     }
-    PublishState();
+    if(config["mode"] != "write-defaults")
+    {
+        PublishState();
+    }
 }
 void setup()
 {
-  SerialMon.begin();
+  Terminal.begin();
   matrix.begin();
   ProgressBar(2);
-  SerialAT.begin(115200);
+  SerialModem.begin(115200);
   delay(6000);
-  SerialMon.print("Firmware ");
-  SerialMon.print(FW_NAME);  
-  SerialMon.print(", version ");
-  SerialMon.print(FW_VERSION);
-  SerialMon.print(",build ");  
-  SerialMon.println(BUILD);
+  Terminal.print(F("Firmware "));
+  Terminal.print(FW_NAME);  
+  Terminal.print(F(", version "));
+  Terminal.print(FW_VERSION);
+  Terminal.print(F(",build "));  
+  Terminal.println(BUILD);
+  EEPROM.init();
+  int sign;
+  EEPROM.get(0, sign);
+  if (sign != WRITTEN_SIGNATURE)
+  {
+    EEPROM.put(0, WRITTEN_SIGNATURE);
+    for (uint8_t i = 0; i < 16; i++)
+    {
+        EEPROM.update(FsysAddr + i, NULL);
+    }
+    FactoryReset();
+  }
+  EEPROM.get(FsysAddr, FsysBlock);
+  EEPROM.get(NVRAMAddr, CurrentSettings);
+  tState.setInterval(CurrentSettings.SysStateFreq*TASK_MINUTE);
+  getEEPROMData();
+  if (FsysBlock.FsysSign == FSYS_SIGNATURE)
+  {
+      Terminal.print(F("Device SN: "));
+      for (uint8_t i = 0; i < 11; i++)
+      {
+          FsysBlock.SerialNumber[i] = EEPROM.read(FsysAddr + i);
+          Terminal.print(FsysBlock.SerialNumber[i]);
+      }
+      Terminal.println();
+      Terminal.print("Use SN as ID: ");
+      Terminal.println(FsysBlock.UseSN);
+  }
+  else
+  {
+      Terminal.println(F("Serial Number is not set"));
+  }
   ProgressBar(4);
   modem.init();
   String DeviceImei = modem.getIMEI();
@@ -311,8 +463,22 @@ void setup()
     error(1);
   }
   DeviceImei.toCharArray(DeviceID, 16);
-  SerialMon.print("Lamp ID number: ");
-  SerialMon.println(DeviceID);
+  if (FsysBlock.UseSN && FsysBlock.FsysSign == FSYS_SIGNATURE)
+  {
+      for (uint8_t i = 0; i < 17; i++)
+      {
+        if(i < 11)
+        {
+          DeviceID[i] = FsysBlock.SerialNumber[i];
+        }
+        if (i >= 11)
+        {
+          DeviceID[i] = NULL;
+        }
+      }
+  }
+  Terminal.print(F("Device ID: "));
+  Terminal.println(DeviceID);
   //Topics formation
     strcat(topicState, DeviceID);
     strcat(topicCmd, DeviceID);
@@ -326,26 +492,26 @@ void setup()
     error(5);
   }
   ProgressBar(8);
-  SerialMon.print("NET? ");
+  Terminal.print(F("NET? "));
   if (!modem.waitForNetwork())
   {
-    SerialMon.println(F("!OK"));
+    Terminal.println(F("!OK"));
     error(2);
   }
   if (modem.isNetworkConnected())
   {
-    SerialMon.println("OK");
+    Terminal.println("OK");
     ProgressBar(10);
   }
-  SerialMon.print("GPRS? ");
+  Terminal.print(F("GPRS? "));
   if (!modem.gprsConnect(apn, gprsUser, gprsPass))
   {
-    SerialMon.println(F("!OK"));
+    Terminal.println(F("!OK"));
     error(2); 
   }
   if (modem.isGprsConnected()) 
   {
-    SerialMon.println(F("OK"));
+    Terminal.println(F("OK"));
     ProgressBar(12);
   }
   ts.addTask(tNotification);
@@ -380,14 +546,14 @@ void NotiCallback()
       switch(CurrentMode)
       {
           case 1: 
-            switch(DefaultAnimation)
+            switch(CurrentSettings.DefaultAnim)
             {
-              case 0: pulse(MainColour); break;
+              case 0: pulse(MainColour, &CurrentSettings); break;
               case 1: wave(MainColour); break;
             }
           break;
           case 2: 
-            switch(DefaultAnimation)
+            switch(CurrentSettings.DefaultAnim)
             {
               case 0: mixedPulse(); break;
               case 1: mixedWave(); break;
@@ -437,7 +603,6 @@ bool SignalTestEn()
     matrix.show();
     delay(500);
   }
-  SerialMon.println(F("SignalTest has been started"));
   return true;
 }
 void SignalTestDis()
@@ -452,15 +617,12 @@ void SignalTestDis()
     matrix.show();
     delay(500);
   }
-  SerialMon.println(F("SignalTest has been disabled"));
 }
 //Service 
 void PublishState ()
 {
       char status[256];
       StaticJsonDocument<256> state;
-      if(tNotification.isEnabled())
-      {
           switch(CurrentMode)
           {
             case 0: state["mode"] = "off"; break;
@@ -468,15 +630,22 @@ void PublishState ()
             case 2: state["mode"] = "mixed";  state["color"] = CurrentColour; state["color2"] = CurrentMixedColour; break;
             case 3: state["mode"] = "test"; break;
           }
-      }
       state["RSSI"] = -113 +(modem.getSignalQuality()*2);
       serializeJson(state, status);
       mqtt.publish(topicState, status);
 }
 void error(int errcode)
 {
-    Serial.println("Error " + errcode);
-    delay(1000);
+    Terminal.print(F("Error "));
+    Terminal.print(errcode);
+    switch (errcode)
+    {
+      case 1: Terminal.println(F(" - No connection with the modem")); break;
+      case 2: Terminal.println(F(" - No connection with the GSM network")); break;
+      case 3: Terminal.println(F(" - No connection with the internet")); break;
+      case 4: Terminal.println(F(" - No connection with the server")); break;
+      case 5: Terminal.println(F(" - SIM-Card is not inserted")); break;
+    }
     int i = 0;
     while(i < 5)
     {
@@ -530,12 +699,16 @@ void error(int errcode)
           delay(2000);
           break;
       }
-      if (AutoReset)
+      if (CurrentSettings.AutoReset)
       {
         i++;
       }
     }
-    NVIC_SystemReset();
+    if (CurrentSettings.AutoReset)
+    {
+      NVIC_SystemReset();
+    }
+    
 }
 void ProgressBar (int pb)
 {
@@ -546,50 +719,81 @@ void ProgressBar (int pb)
 //Animations
 void Fadein(uint32_t fadecolor, int brightness)
 {
+  if(CurrentSettings.ColourCorr == 1)
+  {
+    matrix.fill(fadecolor, 0, 256);
+  }
+  else if(&CurrentSettings.ColourCorr == reinterpret_cast<uint8_t*>(2))
+  {
+    matrix.fill(matrix.gamma32(fadecolor), 0, 256);
+  }
+  else if(CurrentSettings.ColourCorr == 0)
+  {
+    matrix.fillScreen(fadecolor);
+  }
   matrix.setBrightness(0);
   matrix.fillScreen(fadecolor);
   matrix.show();
   for (byte j = 0; j < brightness; j++)
   {
-    matrix.fillScreen(fadecolor);
     matrix.setBrightness(j);
     matrix.show();
-    delay(PulseFD);
+    delay(CurrentSettings.PulseFrameDelay);
   }
 }
 void FadeOut(uint32_t fadecolour, int brightness)
 {
-  for (byte k = brightness; k > 0; k--)
+  if(CurrentSettings.ColourCorr == 1)
+  {
+    matrix.fill(fadecolour, 0, 256);
+  }
+  else if(CurrentSettings.ColourCorr == 2)
+  {
+    matrix.fill(matrix.gamma32(fadecolour), 0, 256);
+  }
+  else if(CurrentSettings.ColourCorr == 0)
   {
     matrix.fillScreen(fadecolour);
+  }
+  for (byte k = brightness; k > 0; k--)
+  {
     matrix.setBrightness(k);
     matrix.show();
   }
   matrix.fillScreen(matrix.Color(0, 0, 0));
   matrix.show();
 }
-void pulse(uint32_t Colour)
+void pulse(uint32_t Colour,struct Settings *set)
 {
+  if(set->ColourCorr == 1)
+  {
+    matrix.fill(Colour, 0, 256);
+  }
+  else if(set->ColourCorr == 2)
+  {
+    matrix.fill(matrix.gamma32(Colour), 0, 256);
+  }
+  else if(set->ColourCorr == 0)
+  {
+    matrix.fillScreen(Colour);
+  }
   if(tNotification.getRunCounter() < NotiBrightness)
   {
     matrix.setBrightness(FN);
-    matrix.fillScreen(Colour);
     matrix.show();
-    tNotification.delay(PulseFD);
+    tNotification.delay(set->PulseFrameDelay);
   }
   else if(tNotification.getRunCounter() == NotiBrightness)
   {
     matrix.setBrightness(FN);
-    matrix.fillScreen(Colour);
     matrix.show();
-    tNotification.delay(PeakFreeze);
+    tNotification.delay(set->PulsePeakFreeze);
   }
   else if(tNotification.getRunCounter() > NotiBrightness)
   {
     matrix.setBrightness((NotiBrightness*2)-FN);
-    matrix.fillScreen(Colour);
     matrix.show();
-    tNotification.delay(PulseFD);
+    tNotification.delay(set->PulseFrameDelay);
   }
   FN++;
   if(tNotification.getIterations() == 0)
@@ -598,43 +802,57 @@ void pulse(uint32_t Colour)
     {
         ColCh = !ColCh;
     }
-    tNotification.restartDelayed(PeakFreeze);
+    tNotification.restartDelayed(set->PulseZeroFreeze);
   }
-    //FadeOut(Colour, NotiBrightness);
 }
 void wave(uint32_t Colour)
 {
-  float brc = NotiBrightness / 8;
-  for (byte i = 0; i <= 17; i++)
-  {
-    matrix.fillScreen(Colour);
-    matrix.drawLine(i, 0, i, 16, NSColour);
-    matrix.drawLine(i + 1, 0, i + 1, 16, NSGColour);
-    matrix.drawLine(i - 1, 0, i - 1, 16, NSGColour);
-    matrix.show();
-    if (i <= 8)
+    float brc = NotiBrightness / 8;
+    if(CurrentSettings.ColourCorr == 1)
     {
-      //delay(delays-(i*delayk));
-      matrix.setBrightness(i+(i * brc));
+       matrix.fill(Colour, 0, 256);
+    }
+    else if(CurrentSettings.ColourCorr == 2)
+    {
+      matrix.fill(matrix.gamma32(Colour), 0, 256);
+    }
+    else if(CurrentSettings.ColourCorr == 0)
+    {
+      matrix.fillScreen(Colour);
+    }
+    matrix.drawLine(FN, 0, FN, 16, NSGColour);
+    matrix.drawLine(FN-1, 0, FN -1, 16, NSColour);
+    matrix.drawLine(FN - 2, 0, FN - 2, 16, NSGColour);
+    if (FN <= 9)
+    {
+      matrix.setBrightness(FN+(FN * brc));
+      matrix.show();
       tNotification.delay(40);
     }
     else
     {
-      // delay(delays-(8*delayk)+(i*delayk));
-      
-      matrix.setBrightness(NotiBrightness - ((i - 8)*brc));
+      matrix.setBrightness(NotiBrightness - ((FN - 8)*brc));
+      matrix.show();
       tNotification.delay(40);
     }
+  FN++;
+  if(tNotification.getIterations() == 0)
+  {
+    matrix.setBrightness(0);
+    matrix.show();
+    if(CurrentMode == 2)
+    {
+        ColCh = !ColCh;
+    }
+    tNotification.restartDelayed(CurrentSettings.PulsePeakFreeze);
   }
-  matrix.setBrightness(0);
-  matrix.show();
 }
 void mixedPulse()
 {
   switch (ColCh)
   {
-     case false: pulse(MainColour); break;
-     case true: pulse(MixedColour); break;
+     case false: pulse(MainColour, &CurrentSettings); break;
+     case true: pulse(MixedColour, &CurrentSettings); break;
   }
 }
 void mixedWave()
@@ -649,4 +867,116 @@ bool PulseOn()
 {
     FN = 0;
     return true;
+}
+void FactoryReset()
+{
+   Terminal.println("Factory reset");
+
+    Settings DefaultSettings;
+    DefaultSettings.AutoReset = true;
+    DefaultSettings.SysStateFreq = 1;
+    DefaultSettings.DefaultAnim = 0;
+    DefaultSettings.PulseFrameDelay = 3;
+    DefaultSettings.PulsePeakFreeze = 1500;
+    DefaultSettings.PulseZeroFreeze = 1500;
+    DefaultSettings.ColourCorr = 0;
+    
+   matrix.setBrightness(40);
+   matrix.fillScreen(matrix.Color(0,0,0));
+   matrix.show();
+   matrix.fillRect(0,0,4,16,matrix.Color(255,255,255));
+   delay(500);
+   matrix.show();
+   matrix.fillRect(4,0,4,16,matrix.Color(50,168,168));
+   delay(500);
+   matrix.show();
+   matrix.fillRect(8,0,4,16,matrix.Color(255,255,255));
+   delay(500);
+   matrix.show();
+   matrix.fillRect(12,0,4,16,matrix.Color(50,168,168));
+   delay(500);
+   matrix.show();
+ 
+   EEPROM.put(NVRAMAddr, DefaultSettings);
+   EEPROM.commit();
+
+   delay(2000);
+   matrix.fillRect(0,0,4,16,matrix.Color(0,0,0));
+   delay(500);
+   matrix.show();
+   matrix.fillRect(4,0,4,16,matrix.Color(0,0,0));
+   delay(500);
+   matrix.show();
+   matrix.fillRect(8,0,4,16,matrix.Color(0,0,0));
+   delay(500);
+   matrix.show();
+   matrix.fillRect(12,0,4,16,matrix.Color(0,0,0));
+   delay(500);
+   matrix.show();
+   delay(500);
+   NVIC_SystemReset();
+}
+void ApplySettingsEvent()
+{
+  char eventum[192];
+  StaticJsonDocument<192> event;
+  event["write-defaults"] = "success";
+  JsonArray Current_Settings = event.createNestedArray("current-settings");
+  Current_Settings.add(CurrentSettings.AutoReset);
+  Current_Settings.add(CurrentSettings.SysStateFreq);
+  Current_Settings.add(CurrentSettings.DefaultAnim);
+  Current_Settings.add(CurrentSettings.PulseFrameDelay);
+  Current_Settings.add(CurrentSettings.PulsePeakFreeze);
+  Current_Settings.add(CurrentSettings.PulseZeroFreeze);
+  Current_Settings.add(CurrentSettings.ColourCorr);
+  serializeJson(event, eventum);
+  mqtt.publish(topicEvent, eventum);
+}
+void AnimationChange()
+{
+    Terminal.println("Animation Change!");
+    switch (CurrentSettings.DefaultAnim)
+    {
+        case 0: tNotification.setIterations((NotiBrightness*2)+1); break;
+        case 1: tNotification.setIterations(18);break;
+    }
+}
+void getEEPROMData()
+{
+  Terminal.println("EEPROM data: ");
+  Terminal.print("Signature: ");
+  for(int i = 0; i < 4; i++)
+  {
+      Terminal.print(char(EEPROM.read(i)));
+  }
+  Terminal.print(" (0x");
+  for(int i = 0; i < 4; i++)
+  {
+      Terminal.print(EEPROM.read(i), HEX);
+  }
+  Terminal.println(")");
+  Terminal.print("Fsys: ");
+  for(int i = FsysAddr; i < FsysAddr+11; i++)
+  {
+      Terminal.print((char)EEPROM.read(i));
+  }
+  for(int i = FsysAddr+11; i < FsysAddr+12; i++)
+  {
+      Terminal.print(EEPROM.read(i));
+  }
+  for(int i = FsysAddr+12; i < FsysAddr+16; i++)
+  {
+      Terminal.print(char(EEPROM.read(i)));
+  }
+  Terminal.println();
+  Terminal.print("NVRAM: ");
+  for(int i = NVRAMAddr; i < NVRAMAddr+8; i++)
+  {
+      Terminal.print(EEPROM.read(i));
+  }
+  Terminal.println();
+}
+ uint32_t Colour32(uint8_t r, uint8_t g, uint8_t b) 
+ {
+    return ((uint32_t)r << 16) | ((uint32_t)g <<  8) | b;
 }
