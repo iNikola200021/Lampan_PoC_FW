@@ -200,23 +200,20 @@ void PublishState()
 {
   char status[256];
   StaticJsonDocument<256> state;
-  if (tNotification.isEnabled())
+  switch (CurrentMode)
   {
-    switch (CurrentMode)
-    {
-    case 0:
-      state["mode"] = "off";
-      break;
-    case 1:
-      state["mode"] = "pulse";
-      state["color"] = CurrentColour;
-      break;
-    case 2:
-      state["mode"] = "mixed";
-      state["color"] = CurrentColour;
-      state["color2"] = CurrentMixedColour;
-      break;
-    }
+  case 0:
+    state["mode"] = "off";
+    break;
+  case 1:
+    state["mode"] = "pulse";
+    state["color"] = CurrentColour;
+    break;
+  case 2:
+    state["mode"] = "mixed";
+    state["color"] = CurrentColour;
+    state["color2"] = CurrentMixedColour;
+    break;
   }
   state["RSSI"] = -113 + (modem.getSignalQuality() * 2);
   serializeJson(state, status);
