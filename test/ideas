@@ -1,0 +1,49 @@
+void wave(uint32_t Colour)
+{
+  uint8_t StringRatio = NotiBrightness / 20;
+  matrix.fillScreen(Colour);
+  int SP = ((FN-1)/StringRatio)/2;
+  double Ost = ((FN-1)%StringRatio)/2;
+  uint8_t rMix = ColourMix(180,76,2);
+  Terminal.println(rMix);
+    matrix.drawLine(SP, 0, SP, 16, NSGColour);
+    matrix.drawLine(SP - 1, 0, SP - 1, 16, NSColour);
+    matrix.drawLine(SP - 2, 0, SP - 2, 16, NSColour);
+    matrix.drawLine(SP - 3, 0, SP - 3, 16, NSGColour);
+  if(FN < NotiBrightness)
+  {
+    matrix.setBrightness(FN);
+    matrix.show();
+    tNotification.delay(6);
+  }
+  else if(FN == NotiBrightness)
+  {
+    matrix.setBrightness(FN);
+    matrix.show();
+    tNotification.delay(6);
+  }
+  else if(FN > NotiBrightness)
+  {
+    matrix.setBrightness((NotiBrightness*2)-FN);
+    matrix.show();
+    tNotification.delay(6);
+  }
+  FN++;
+  if(tNotification.getIterations() == 0)
+  {
+    if(CurrentMode == 2)
+    {
+        ColCh = !ColCh;
+    }
+    tNotification.restartDelayed(3000);
+  }
+}
+uint8_t ColourMix(uint8_t foreground, uint8_t background, double ratio)
+{
+    uint8_t result;
+    double alphaB = 1/ratio;
+    double alphaF = 1 - alphaB;
+    double alphaR = 1 - (1 - alphaF) * (1 - alphaB);
+    result = foreground * alphaF / alphaR + background * alphaB * (1 - alphaF) / alphaR;
+    return result;
+}
